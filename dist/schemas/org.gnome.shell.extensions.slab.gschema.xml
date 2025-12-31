@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.slab" path="/org/gnome/shell/extensions/slab/">
+    
+    <!-- Toggle tiling on/off keybinding -->
+    <key name="toggle-tiling" type="as">
+      <default><![CDATA[['<Super><Shift>t']]]></default>
+      <summary>Toggle Tiling</summary>
+      <description>
+        Keybinding to toggle between tiled and floating window layout.
+        When enabled, windows snap to Master-Stack layout instantly.
+        When disabled, windows restore to their exact previous positions.
+      </description>
+    </key>
+    
+    <!-- Master area ratio (0.0 - 1.0) -->
+    <key name="master-ratio" type="d">
+      <default>0.55</default>
+      <range min="0.2" max="0.8"/>
+      <summary>Master Area Ratio</summary>
+      <description>
+        Ratio of screen width occupied by the master window (0.2 to 0.8).
+      </description>
+    </key>
+    
+    <!-- Gap between windows in pixels -->
+    <key name="window-gap" type="i">
+      <default>8</default>
+      <range min="0" max="64"/>
+      <summary>Window Gap</summary>
+      <description>Gap in pixels between tiled windows.</description>
+    </key>
+    
+  </schema>
+</schemalist>
