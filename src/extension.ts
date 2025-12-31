@@ -524,16 +524,7 @@ function restoreFloatingPositions(state: SlabState, windows: Meta.Window[]): voi
         }
     }
 
-    // STEP 2: Use GNOME Shell's native mechanism to skip animations
-    console.log('[SLAB] Suppressing animations via Main.wm.skipNextEffect');
-    for (const { actor } of windowActors) {
-        try {
-            // This flag is auto-cleared by Shell after the next effect
-            Main.wm.skipNextEffect(actor);
-        } catch (e) {
-            console.error('[SLAB] Error suppressing animations:', e);
-        }
-    }
+
 
     // Find the highest stackIndex of any fullscreen window
     let maxFullscreenStackIndex = -1;
@@ -543,9 +534,25 @@ function restoreFloatingPositions(state: SlabState, windows: Meta.Window[]): voi
         }
     }
 
-    // Schedule all restores synchronized with compositor redraw
+    // STEP 2: Use GNOME Shell's native mechanism to skip animations inside the callback
+    // This atomic transaction ensures we catch the exact frame where geometry changes
     scheduleBeforeRedraw(() => {
-        console.log('[SLAB] Restore callback executing');
+        console.log('[SLAB] Restore callback executing - Suppressing animations');
+
+        // Suppress animations for all windows involved
+        for (const { actor } of windowActors) {
+            try {
+                // 1. Skip Shell-level effects (Minimize/Maximize/Map)
+                Main.wm.skipNextEffect(actor);
+
+                // 2. Kill Clutter-level implicit animations (Easing)
+                actor.save_easing_state();
+                actor.set_easing_duration(0);
+                (actor as any).remove_all_transitions();
+            } catch (e) {
+                console.error('[SLAB] Error inhibiting animations:', e);
+            }
+        }
 
         // === PHASE 1: Restore all windows in stacking order ===
         for (const { window, snapshot } of windowsWithSnapshot) {
@@ -587,8 +594,14 @@ function restoreFloatingPositions(state: SlabState, windows: Meta.Window[]): voi
         }
 
         // === PHASE 3: Restore actor state ===
+        // === PHASE 3: Restore actor state & Resume animations ===
         scheduleBeforeRedraw(() => {
-            console.log('[SLAB] Restore complete');
+            console.log('[SLAB] Restore complete, restoring actor state');
+            for (const { actor } of windowActors) {
+                try {
+                    actor.restore_easing_state();
+                } catch (e) { }
+            }
         });
     });
 }
@@ -694,19 +707,27 @@ function applyMasterStackToWorkspace(state: SlabState, captureSnapshot: boolean 
     }
 
     // STEP 2: Use GNOME Shell's native mechanism to skip animations
-    console.log('[SLAB] Suppressing animations via Main.wm.skipNextEffect');
-    for (const { actor } of windowActors) {
-        try {
-            // This flag is auto-cleared by Shell after the next effect
-            Main.wm.skipNextEffect(actor);
-        } catch (e) {
-            console.error('[SLAB] Error suppressing animations:', e);
-        }
-    }
+    // We do this inside the scheduleBeforeRedraw callback to ensure it applies to the exact frame where changes happen
+    console.log('[SLAB] Preparing atomic transition');
 
-    // STEP 3: Do all state changes in ONE BEFORE_REDRAW callback
+    // STEP 3: Apply layout atomically
     scheduleBeforeRedraw(() => {
         console.log('[SLAB] === Atomic transition executing ===');
+
+        // Suppress animations for all windows involved
+        for (const { actor } of windowActors) {
+            try {
+                // 1. Skip Shell-level effects (Minimize/Maximize/Map)
+                Main.wm.skipNextEffect(actor);
+
+                // 2. Kill Clutter-level implicit animations (Easing)
+                actor.save_easing_state();
+                actor.set_easing_duration(0);
+                (actor as any).remove_all_transitions();
+            } catch (e) {
+                console.error('[SLAB] Error inhibiting animations:', e);
+            }
+        }
 
         // First: unfullscreen and unmaximize all windows
         for (const window of allWindows) {
@@ -761,9 +782,14 @@ function applyMasterStackToWorkspace(state: SlabState, captureSnapshot: boolean 
             }
         }
 
-        // STEP 4: Resume animations
+        // STEP 4: Resume animations & Restore State
         scheduleBeforeRedraw(() => {
-            console.log('[SLAB] All geometry applied, resuming animations');
+            console.log('[SLAB] All geometry applied, restoring actor state');
+            for (const { actor } of windowActors) {
+                try {
+                    actor.restore_easing_state();
+                } catch (e) { }
+            }
             resumeAnimations();
         });
     });
