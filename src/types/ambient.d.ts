@@ -128,6 +128,12 @@ declare module 'gi://Meta' {
         allows_resize(): boolean;
 
         /**
+         * Minimize/unminimize the window
+         */
+        minimize(): void;
+        unminimize(): void;
+
+        /**
          * Unfullscreen the window
          */
         unmake_fullscreen(): void;
@@ -143,8 +149,22 @@ declare module 'gi://Meta' {
          */
         move_resize_frame(userOp: boolean, x: number, y: number, w: number, h: number): void;
 
+        /**
+         * Maximize the window
+         */
+        maximize(flags: MaximizeFlags): void;
         unmaximize(flags: MaximizeFlags): void;
         get_maximized(): MaximizeFlags;
+
+        /**
+         * Make window fullscreen
+         */
+        make_fullscreen(): void;
+
+        /**
+         * Raise window to top of stacking order
+         */
+        raise(): void;
 
         activate(timestamp: number): void;
 
