@@ -292,6 +292,32 @@ declare module 'gi://Clutter' {
     }
 }
 
+declare module 'gi://St' {
+    const St: typeof import('gi://St');
+    export default St;
+
+    /**
+     * St.Settings - Shell Toolkit settings, includes animation control
+     */
+    export class Settings {
+        /**
+         * Get the singleton Settings instance
+         */
+        static get(): Settings;
+
+        /**
+         * Inhibit animations - use this to disable ALL animations temporarily
+         * Call uninhibit_animations() when done
+         */
+        inhibit_animations(): void;
+
+        /**
+         * Uninhibit animations - re-enable animations after inhibit
+         */
+        uninhibit_animations(): void;
+    }
+}
+
 declare module 'gi://Gio' {
     const Gio: typeof import('gi://Gio');
     export default Gio;
@@ -311,6 +337,11 @@ declare module 'gi://Gio' {
 
         connect(signal: string, callback: () => void): number;
         disconnect(id: number): void;
+
+        /**
+         * Sync settings to disk - ensures changes are applied immediately
+         */
+        static sync(): void;
     }
 }
 

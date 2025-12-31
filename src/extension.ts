@@ -29,12 +29,18 @@ import Shell from 'gi://Shell';
 import GObject from 'gi://GObject';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
+import St from 'gi://St';
+
+// Window actor interface for stacking order access
+interface WindowActor {
+    get_meta_window(): Meta.Window | null;
+}
 
 // Declare the global object available in GNOME Shell context
 declare const global: {
     display: Meta.Display;
     stage: any;
-    get_window_actors(): any[];
+    get_window_actors(): WindowActor[];
 };
 
 // Console is available in GJS
@@ -108,45 +114,43 @@ interface SlabState {
 }
 
 // =============================================================================
-// ANIMATION SUSPENSION
+// ANIMATION SUSPENSION (Using GNOME Shell Internal API)
 // =============================================================================
 /**
- * GSettings for GNOME interface animations.
- * We temporarily disable animations during tiling operations for instant transitions.
+ * Use St.Settings to properly inhibit animations.
+ * This is GNOME Shell's internal mechanism - much more reliable than GSettings.
  */
-let _interfaceSettings: Gio.Settings | null = null;
-let _animationsWereEnabled: boolean = true;
+
+let _animationInhibitCount = 0;
 
 /**
- * Suspend GNOME animations temporarily.
- * Stores the previous state so we can restore it later.
+ * Suspend ALL GNOME Shell animations using the internal API.
+ * This is the proper way to do it - no race conditions, instant effect.
  */
 function suspendAnimations(): void {
     try {
-        if (!_interfaceSettings) {
-            _interfaceSettings = new Gio.Settings({ schema_id: 'org.gnome.desktop.interface' });
-        }
-        _animationsWereEnabled = _interfaceSettings.get_boolean('enable-animations');
-        if (_animationsWereEnabled) {
-            _interfaceSettings.set_boolean('enable-animations', false);
-            console.log('[SLAB] Animations suspended');
-        }
+        const settings = St.Settings.get();
+        settings.inhibit_animations();
+        _animationInhibitCount++;
+        console.log('[SLAB] Animations inhibited (count:', _animationInhibitCount + ')');
     } catch (e) {
-        console.log('[SLAB] Failed to suspend animations:', e);
+        console.log('[SLAB] Failed to inhibit animations:', e);
     }
 }
 
 /**
- * Resume GNOME animations (restore previous state).
+ * Resume GNOME Shell animations.
  */
 function resumeAnimations(): void {
     try {
-        if (_interfaceSettings && _animationsWereEnabled) {
-            _interfaceSettings.set_boolean('enable-animations', true);
-            console.log('[SLAB] Animations resumed');
+        if (_animationInhibitCount > 0) {
+            const settings = St.Settings.get();
+            settings.uninhibit_animations();
+            _animationInhibitCount--;
+            console.log('[SLAB] Animations uninhibited (count:', _animationInhibitCount + ')');
         }
     } catch (e) {
-        console.log('[SLAB] Failed to resume animations:', e);
+        console.log('[SLAB] Failed to uninhibit animations:', e);
     }
 }
 
@@ -406,6 +410,9 @@ function calculateMasterStackLayout(
 /**
  * Get windows eligible for tiling on the active workspace.
  * 
+ * IMPORTANT: Returns windows in STACKING ORDER (bottom to top),
+ * with the FOCUSED window moved to the FRONT (will be master).
+ * 
  * We filter out:
  * - Non-normal windows (dialogs, menus, etc.)
  * - Windows on other workspaces
@@ -418,21 +425,46 @@ function getTileableWindows(): Meta.Window[] {
 
     if (!workspace) return [];
 
-    return workspace.list_windows().filter((window: Meta.Window) => {
+    // Get window actors in stacking order (bottom to top)
+    const actors = global.get_window_actors();
+    const focusedWindow = display.get_focus_window();
+
+    // Build list of tileable windows in stacking order
+    const tileableWindows: Meta.Window[] = [];
+
+    for (const actor of actors) {
+        const window = actor.get_meta_window();
+        if (!window) continue;
+
         // Only tile normal windows
-        if (window.window_type !== Meta.WindowType.NORMAL) return false;
+        if (window.window_type !== Meta.WindowType.NORMAL) continue;
+
+        // Must be on active workspace
+        if (window.get_workspace() !== workspace) continue;
 
         // Skip hidden/minimized
-        if (window.is_hidden()) return false;
+        if (window.is_hidden()) continue;
 
         // Must be movable and resizable
-        if (!window.allows_move() || !window.allows_resize()) return false;
+        if (!window.allows_move() || !window.allows_resize()) continue;
 
-        // Skip windows on all workspaces (usually sticky notes, etc.)
-        if (window.is_on_all_workspaces()) return false;
+        // Skip windows on all workspaces (sticky notes, etc)
+        if (window.is_on_all_workspaces()) continue;
 
-        return true;
-    });
+        tileableWindows.push(window);
+    }
+
+    // Move focused window to the FRONT (it will be master on left side)
+    if (focusedWindow) {
+        const focusedIndex = tileableWindows.findIndex(w =>
+            w.get_stable_sequence() === focusedWindow.get_stable_sequence());
+        if (focusedIndex > 0) {
+            const [focused] = tileableWindows.splice(focusedIndex, 1);
+            tileableWindows.unshift(focused);
+        }
+    }
+
+    return tileableWindows;
 }
 
 // =============================================================================
@@ -472,10 +504,10 @@ function captureFloatingSnapshot(windows: Meta.Window[]): FloatingSnapshot {
  * Restore windows to their floating positions, fullscreen state, and z-order.
  * Called when tiling is DISABLED.
  * 
- * INSTANT RESTORATION - NO ANIMATIONS:
- * Two-phase restoration to preserve z-order:
- * 1. Restore normal (non-fullscreen) windows with proper z-order
- * 2. Restore fullscreen windows LAST (they auto-raise, so order matters)
+ * STACKING ORDER STRATEGY:
+ * 1. Restore all windows in original stacking order (bottom to top)
+ * 2. After fullscreen windows are restored (they auto-raise), 
+ *    re-raise any normal windows that were ABOVE them in original order
  */
 function restoreFloatingPositions(state: SlabState, windows: Meta.Window[]): void {
     const windowsWithSnapshot: Array<{ window: Meta.Window; snapshot: WindowSnapshot }> = [];
@@ -492,20 +524,37 @@ function restoreFloatingPositions(state: SlabState, windows: Meta.Window[]): voi
     // Sort by stackIndex (bottom to top) to restore in correct z-order
     windowsWithSnapshot.sort((a, b) => a.snapshot.stackIndex - b.snapshot.stackIndex);
 
-    // Separate fullscreen and non-fullscreen windows
-    const normalWindows = windowsWithSnapshot.filter(w => !w.snapshot.wasFullscreen);
-    const fullscreenWindows = windowsWithSnapshot.filter(w => w.snapshot.wasFullscreen);
+    console.log('[SLAB] Restoring', windowsWithSnapshot.length, 'windows in stacking order');
 
-    // Also sort fullscreen windows by their stackIndex relative to each other
-    fullscreenWindows.sort((a, b) => a.snapshot.stackIndex - b.snapshot.stackIndex);
+    // Find the highest stackIndex of any fullscreen window
+    let maxFullscreenStackIndex = -1;
+    for (const { snapshot } of windowsWithSnapshot) {
+        if (snapshot.wasFullscreen && snapshot.stackIndex > maxFullscreenStackIndex) {
+            maxFullscreenStackIndex = snapshot.stackIndex;
+        }
+    }
 
-    console.log('[SLAB] Restoring', normalWindows.length, 'normal +', fullscreenWindows.length, 'fullscreen');
-
-    // === PHASE 1: Restore normal windows (bottom to top for z-order) ===
-    for (const { window, snapshot } of normalWindows) {
+    // === PHASE 1: Restore all windows in stacking order ===
+    for (const { window, snapshot } of windowsWithSnapshot) {
         try {
+            // VISUAL DECOUPLING
+            // Instant visual update by manipulating the actor directly
+            const actor = window.get_compositor_private() as Clutter.Actor | null;
+            if (actor) {
+                const csd = calculateCSDDelta(window);
+                const actorX = snapshot.x - csd.left;
+                const actorY = snapshot.y - csd.top;
+                const actorW = snapshot.width + csd.left + csd.right;
+                const actorH = snapshot.height + csd.top + csd.bottom;
+
+                actor.set_position(actorX, actorY);
+                actor.set_size(actorW, actorH);
+            }
+
+            // Restore actual window state
             window.move_resize_frame(true, snapshot.x, snapshot.y, snapshot.width, snapshot.height);
 
+            // Restore maximize state
             if (snapshot.wasMaximized === 3) {
                 window.maximize(Meta.MaximizeFlags.BOTH);
             } else if (snapshot.wasMaximized === 1) {
@@ -514,22 +563,24 @@ function restoreFloatingPositions(state: SlabState, windows: Meta.Window[]): voi
                 window.maximize(Meta.MaximizeFlags.VERTICAL);
             }
 
-            window.raise();
+            // Restore fullscreen state (auto-raise)
+            if (snapshot.wasFullscreen) {
+                window.make_fullscreen();
+            }
         } catch (e) {
-            console.log('[SLAB] Error restoring normal window:', window.title);
+            console.log('[SLAB] Error restoring window:', window.title);
         }
     }
 
-    // === PHASE 2: Restore fullscreen windows (in their relative order) ===
-    // Fullscreen windows auto-raise, so we restore them last
-    // and in order of their stackIndex so the top one ends up on top
-    for (const { window, snapshot } of fullscreenWindows) {
-        try {
-            window.move_resize_frame(true, snapshot.x, snapshot.y, snapshot.width, snapshot.height);
-            window.make_fullscreen();
-            // Note: don't call raise() - fullscreen windows auto-raise
-        } catch (e) {
-            console.log('[SLAB] Error restoring fullscreen window:', window.title);
+    // === PHASE 2: Re-raise windows that were ABOVE fullscreen windows ===
+    // Fullscreen windows auto-raise when make_fullscreen() is called,
+    // so we need to re-raise any normal windows that should be on top of them
+    if (maxFullscreenStackIndex >= 0) {
+        for (const { window, snapshot } of windowsWithSnapshot) {
+            if (!snapshot.wasFullscreen && snapshot.stackIndex > maxFullscreenStackIndex) {
+                console.log('[SLAB] Re-raising window above fullscreen:', window.title);
+                window.raise();
+            }
         }
     }
 }
@@ -548,26 +599,25 @@ function toggleSlab(state: SlabState): void {
     // Suspend animations for instant transitions
     suspendAnimations();
 
-    try {
-        if (state.tilingEnabled) {
-            // === DISABLE TILING ===
-            // Restore windows to their floating positions using the stored snapshot
-            const windows = getTileableWindows();
-            restoreFloatingPositions(state, windows);
-            state.tilingEnabled = false;
-            state.floatingSnapshot.clear();
-        } else {
-            // === ENABLE TILING ===
-            // Apply Master-Stack layout (this also captures the snapshot BEFORE unfullscreening)
-            state.tilingEnabled = true;
-            applyMasterStackToWorkspace(state, true); // true = capture snapshot
-        }
-    } finally {
-        // Resume animations after a short delay to ensure all operations complete
+    if (state.tilingEnabled) {
+        // === DISABLE TILING ===
+        // Restore windows to their floating positions using the stored snapshot
+        const windows = getTileableWindows();
+        restoreFloatingPositions(state, windows);
+        state.tilingEnabled = false;
+        state.floatingSnapshot.clear();
+
+        // Resume animations after a delay to ensure async operations like make_fullscreen complete
         GLib.timeout_add(GLib.PRIORITY_DEFAULT, 100, () => {
             resumeAnimations();
             return GLib.SOURCE_REMOVE;
         });
+    } else {
+        // === ENABLE TILING ===
+        // Apply Master-Stack layout (this also captures the snapshot BEFORE unfullscreening)
+        // Animation resume is handled inside applyMasterStackToWorkspace after all ops complete
+        state.tilingEnabled = true;
+        applyMasterStackToWorkspace(state, true); // true = capture snapshot
     }
 }
 
@@ -593,7 +643,6 @@ function applyMasterStackToWorkspace(state: SlabState, captureSnapshot: boolean 
     if (allWindows.length === 0) return;
 
     // STEP 1: Capture snapshot BEFORE unfullscreening (if requested)
-    // This preserves the original fullscreen/maximize state!
     if (captureSnapshot) {
         console.log('[SLAB] Capturing snapshot of', allWindows.length, 'windows');
         state.floatingSnapshot = captureFloatingSnapshot(allWindows);
@@ -617,7 +666,7 @@ function applyMasterStackToWorkspace(state: SlabState, captureSnapshot: boolean 
         }
     }
 
-    // STEP 2: Apply tiling (with delay if we unfullscreened/unmaximized)
+    // STEP 3: Apply tiling (with delay if we unfullscreened/unmaximized)
     const doTiling = () => {
         // Re-fetch tileable windows after unfullscreen/unmaximize
         const windows = getTileableWindows();
@@ -638,6 +687,9 @@ function applyMasterStackToWorkspace(state: SlabState, captureSnapshot: boolean 
             console.log('[SLAB] Tiling window:', window.title, 'to', x, y, w, h);
             applyTiling(state, window, x, y, w, h);
         }
+
+        // Resume animations after tiling is complete
+        resumeAnimations();
     };
 
     if (needsDelay) {
