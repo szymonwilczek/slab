@@ -1,0 +1,39 @@
+{
+    "compilerOptions": {
+        /* GNOME Shell 45+ uses ESM modules */
+        "target": "ES2022",
+        "module": "ES2022",
+        "moduleResolution": "bundler",
+        /* Output configuration */
+        "outDir": "./dist",
+        "rootDir": "./src",
+        "declaration": false,
+        "sourceMap": false,
+        /* Strict type checking for kernel-level reliability */
+        "strict": true,
+        "noImplicitAny": true,
+        "noUnusedLocals": false,
+        "noUnusedParameters": false,
+        "noImplicitReturns": true,
+        "noFallthroughCasesInSwitch": true,
+        /* GJS compatibility */
+        "lib": [
+            "ES2022"
+        ],
+        "skipLibCheck": true,
+        "esModuleInterop": false,
+        "allowSyntheticDefaultImports": false,
+        /* Path resolution for ambient types */
+        "typeRoots": [
+            "./src/types"
+        ],
+        "types": []
+    },
+    "include": [
+        "src/**/*.ts"
+    ],
+    "exclude": [
+        "node_modules",
+        "dist"
+    ]
+}
