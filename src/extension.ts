@@ -21,8 +21,8 @@
  * NO allocations in hot paths = NO GC pauses during tiling operations.
  */
 
-import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 
 import Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
@@ -41,6 +41,12 @@ declare const global: {
     display: Meta.Display;
     stage: any;
     get_window_actors(): WindowActor[];
+    compositor?: {
+        get_laters(): {
+            add(type: number, callback: () => boolean): number;
+            remove(id: number): void;
+        };
+    };
 };
 
 // Console is available in GJS
@@ -51,29 +57,81 @@ declare const console: {
 };
 
 // =============================================================================
-// PRE-ALLOCATED GEOMETRY POOL (Zero-GC Strategy)
+// LATERS API HELPER (GNOME 45+ Compatibility)
 // =============================================================================
 /**
- * These static rectangles are reused for ALL geometry calculations.
- * We NEVER allocate new Rect objects in the tiling loop.
+ * Schedule a callback to run before the next compositor redraw.
+ * Handles API differences between GNOME versions.
  * 
- * Why: JavaScript GC can pause rendering for 5-50ms. Unacceptable for
- * a tiling WM where we need sub-frame latency.
+ * GNOME 49+: Uses global.compositor.get_laters().add()
+ * GNOME 45-48: Uses Meta.later_add()
+ * Fallback: Execute directly if neither works
  */
-const RECT_POOL = {
-    /** Work area rectangle - reused for each applyTiling call */
-    workArea: new Meta.Rectangle(),
-    /** Master window rectangle */
-    master: new Meta.Rectangle(),
-    /** Stack window rectangle - reused for each stack window */
-    stack: new Meta.Rectangle(),
-    /** Temporary rectangle for CSD compensation */
-    temp: new Meta.Rectangle(),
-    /** Frame-to-buffer delta for CSD shadow compensation */
-    csdDelta: { left: 0, top: 0, right: 0, bottom: 0 },
-};
+function scheduleBeforeRedraw(callback: () => void): void {
+    // Try GNOME 49+ API first (global.compositor.get_laters())
+    if (global.compositor && typeof global.compositor.get_laters === 'function') {
+        try {
+            const laters = global.compositor.get_laters();
+            console.log('[SLAB] Using global.compositor.get_laters() API');
+            laters.add(Meta.LaterType.BEFORE_REDRAW, () => {
+                callback();
+                return false; // GLib.SOURCE_REMOVE equivalent
+            });
+            return;
+        } catch (e) {
+            console.error('[SLAB] global.compositor.get_laters() failed:', e);
+        }
+    }
 
+    // Try Meta.later_add (GNOME 45-48)
+    if (typeof Meta.later_add === 'function') {
+        try {
+            console.log('[SLAB] Using Meta.later_add() API');
+            Meta.later_add(Meta.LaterType.BEFORE_REDRAW, () => {
+                callback();
+                return false;
+            });
+            return;
+        } catch (e) {
+            console.error('[SLAB] Meta.later_add() failed:', e);
+        }
+    }
+
+    // Fallback: Use GLib.idle_add
+    console.warn('[SLAB] No laters API available, using GLib.idle_add fallback');
+    GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+        callback();
+        return GLib.SOURCE_REMOVE;
+    });
+}
+
+// =============================================================================
+// WINDOW MAXIMIZE STATE HELPER (GNOME 45+ Compatibility)
+// =============================================================================
 /**
+ * Get the maximize state of a window.
+ * Handles API differences between GNOME versions.
+ * 
+ * GNOME 45-48: Uses window.get_maximized()
+ * GNOME 49+: Uses window.maximized_horizontally/maximized_vertically properties
+ * 
+ * @returns MaximizeFlags value (0=none, 1=horizontal, 2=vertical, 3=both)
+ */
+function getWindowMaximizeState(window: Meta.Window): number {
+    // Try GNOME 45-48 API first
+    if (typeof (window as any).get_maximized === 'function') {
+        return (window as any).get_maximized();
+    }
+
+    // GNOME 49+ uses properties
+    const h = (window as any).maximized_horizontally === true;
+    const v = (window as any).maximized_vertically === true;
+
+    if (h && v) return Meta.MaximizeFlags.BOTH;
+    if (h) return Meta.MaximizeFlags.HORIZONTAL;
+    if (v) return Meta.MaximizeFlags.VERTICAL;
+    return 0;
+}/**
  * WindowSnapshot - Stores complete window state before tiling was enabled.
  * 
  * We use stable_sequence (not object reference) because:
@@ -111,6 +169,8 @@ interface SlabState {
     blockedSignals: Map<number, number[]>;
     /** Pending later_add callback ID */
     pendingLaterId: number | null;
+    /** Monitor index where tiling is active */
+    currentMonitor: number;
 }
 
 // =============================================================================
@@ -194,136 +254,62 @@ export function _unblockWindowSignals(state: SlabState, window: Meta.Window): vo
 }
 
 // =============================================================================
-// CSD (Client-Side Decorations) COMPENSATION
+// COMPOSITOR-SYNCHRONIZED TILING (BEFORE_REDRAW)
 // =============================================================================
 /**
- * Calculate the delta between frame rect and buffer rect.
- * 
- * GTK4 apps use CSD with shadows that extend beyond the visible frame.
- * - frame_rect: The visible window (what user sees)
- * - buffer_rect: The full buffer including shadows
- * 
- * When we position windows, we need to compensate for this delta
- * so windows appear perfectly flush (pixel-perfect tiling).
- * 
- * @returns The CSD delta object (reuses RECT_POOL.csdDelta)
- */
-function calculateCSDDelta(window: Meta.Window): typeof RECT_POOL.csdDelta {
-    const frame = window.get_frame_rect();
-    const buffer = window.get_buffer_rect();
-
-    // Reuse static object - NO allocation
-    RECT_POOL.csdDelta.left = frame.x - buffer.x;
-    RECT_POOL.csdDelta.top = frame.y - buffer.y;
-    RECT_POOL.csdDelta.right = (buffer.x + buffer.width) - (frame.x + frame.width);
-    RECT_POOL.csdDelta.bottom = (buffer.y + buffer.height) - (frame.y + frame.height);
-
-    return RECT_POOL.csdDelta;
-}
-
-// =============================================================================
-// THE TELEPORT HACK - Actor-First Optimistic UI
-// =============================================================================
-/**
- * applyTiling - Core function implementing Visual Decoupling
- * 
- * ARCHITECTURE:
- * 1. INSTANT VISUAL FEEDBACK (0ms latency)
- *    Manipulate Clutter.Actor directly. This is what the compositor draws.
- *    No Wayland/X11 negotiation - just set position/size.
- * 
- * 2. LAZY PROTOCOL SYNC (deferred to next frame)
- *    Use Meta.later_add(BEFORE_REDRAW) to schedule move_resize_frame().
- *    This satisfies the WM protocol without blocking visuals.
- * 
- * @param window - The Meta.Window to tile
- * @param targetX - Target frame X position
- * @param targetY - Target frame Y position  
- * @param targetW - Target frame width
- * @param targetH - Target frame height
+ * applyTiling - Apply tiling geometry synchronized with compositor redraw
  */
 function applyTiling(
-    state: SlabState,
+    _state: SlabState,
     window: Meta.Window,
     targetX: number,
     targetY: number,
     targetW: number,
     targetH: number
 ): void {
+    console.log('[SLAB] applyTiling called for:', window.title, 'target:', targetX, targetY, targetW, targetH);
+
     // SAFETY: Check if window is still valid
-    if (window.is_hidden() || !window.allows_move() || !window.allows_resize()) {
+    if (window.is_hidden()) {
+        console.log('[SLAB] Window is hidden, skipping:', window.title);
+        return;
+    }
+    if (!window.allows_move()) {
+        console.log('[SLAB] Window does not allow move, skipping:', window.title);
+        return;
+    }
+    if (!window.allows_resize()) {
+        console.log('[SLAB] Window does not allow resize, skipping:', window.title);
         return;
     }
 
-    // Get the Clutter actor - this is the visual representation
-    // Type assertion: get_compositor_private() returns the window's ClutterActor
-    const actor = window.get_compositor_private();
-
-    // SAFETY: Actor may not exist yet (race condition during window creation)
-    if (!actor) {
-        // Fallback: schedule retry on next idle
-        GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
-            if (!window.is_hidden()) {
-                applyTiling(state, window, targetX, targetY, targetW, targetH);
-            }
-            return GLib.SOURCE_REMOVE; // Don't repeat
-        });
-        return;
-    }
-
-    // Calculate CSD shadow compensation
-    const csd = calculateCSDDelta(window);
-
-    // STEP 1: INSTANT VISUAL FEEDBACK
-    // ================================
-    // Manipulate the actor directly. This bypasses all protocol negotiation.
-    // The compositor will draw this immediately in the current frame.
-    //
-    // Why set_position/set_size and not a transform?
-    // Transforms don't affect hit testing. We want both visual AND interactive
-    // positioning to update instantly.
-
-    // Adjust for CSD shadows - position the buffer so frame lands at target
-    const actorX = targetX - csd.left;
-    const actorY = targetY - csd.top;
-    const actorW = targetW + csd.left + csd.right;
-    const actorH = targetH + csd.top + csd.bottom;
-
-    actor.set_position(actorX, actorY);
-    actor.set_size(actorW, actorH);
-
-    // STEP 2: LAZY PROTOCOL SYNC
-    // ==========================
-    // Schedule the actual WM protocol call for next idle.
-    // This is the "proper" way to resize a window, but it's SLOW
-    // (involves Wayland/X11 round-trip, client negotiation, etc.)
-    //
-    // By deferring this to idle, we:
-    // 1. Don't block the current frame
-    // 2. Batch multiple resize operations
-    // 3. Let the client catch up to our imposed geometry
-
-    GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+    // Apply geometry using compositor-synchronized helper
+    scheduleBeforeRedraw(() => {
+        console.log('[SLAB] BEFORE_REDRAW callback executing for:', window.title);
         try {
+            // Skip if window was destroyed
+            if (window.is_hidden()) {
+                console.log('[SLAB] Window hidden in callback, skipping:', window.title);
+                return;
+            }
+
             // CRITICAL: Unmaximize if needed, otherwise move_resize is ignored
-            const maxState = window.get_maximized();
-            if (maxState !== Meta.MaximizeFlags.HORIZONTAL &&
-                maxState !== Meta.MaximizeFlags.VERTICAL &&
-                maxState !== Meta.MaximizeFlags.BOTH) {
-                // Window is not maximized, proceed normally
-            } else {
+            const maxState = getWindowMaximizeState(window);
+            console.log('[SLAB] Window maximize state:', maxState);
+            if (maxState === Meta.MaximizeFlags.HORIZONTAL ||
+                maxState === Meta.MaximizeFlags.VERTICAL ||
+                maxState === Meta.MaximizeFlags.BOTH) {
+                console.log('[SLAB] Unmaximizing window:', window.title);
                 window.unmaximize(Meta.MaximizeFlags.BOTH);
             }
 
-            // The actual protocol-level resize
-            // userOp=true allows bypassing some size constraints
+            // Apply geometry - synchronized with compositor
+            console.log('[SLAB] Calling move_resize_frame:', targetX, targetY, targetW, targetH);
             window.move_resize_frame(true, targetX, targetY, targetW, targetH);
+            console.log('[SLAB] move_resize_frame completed for:', window.title);
         } catch (e) {
-            // Window may have been destroyed between scheduling and execution
-            // This is expected and not an error
+            console.error('[SLAB] Error in BEFORE_REDRAW callback:', e);
         }
-
-        return GLib.SOURCE_REMOVE; // Don't repeat
     });
 }
 
@@ -408,7 +394,7 @@ function calculateMasterStackLayout(
 // WINDOW FILTERING
 // =============================================================================
 /**
- * Get windows eligible for tiling on the active workspace.
+ * Get windows eligible for tiling on the active workspace AND specified monitor.
  * 
  * IMPORTANT: Returns windows in STACKING ORDER (bottom to top),
  * with the FOCUSED window moved to the FRONT (will be master).
@@ -416,10 +402,13 @@ function calculateMasterStackLayout(
  * We filter out:
  * - Non-normal windows (dialogs, menus, etc.)
  * - Windows on other workspaces
+ * - Windows on other monitors
  * - Windows that can't be moved/resized
  * - Minimized/hidden windows
+ * 
+ * @param monitor - Monitor index to filter windows for
  */
-function getTileableWindows(): Meta.Window[] {
+function getTileableWindows(monitor: number): Meta.Window[] {
     const display = global.display;
     const workspace = display.get_workspace_manager().get_active_workspace();
 
@@ -441,6 +430,9 @@ function getTileableWindows(): Meta.Window[] {
 
         // Must be on active workspace
         if (window.get_workspace() !== workspace) continue;
+
+        // Must be on the specified monitor
+        if (window.get_monitor() !== monitor) continue;
 
         // Skip hidden/minimized
         if (window.is_hidden()) continue;
@@ -482,7 +474,7 @@ function captureFloatingSnapshot(windows: Meta.Window[]): FloatingSnapshot {
     for (let i = 0; i < windows.length; i++) {
         const window = windows[i];
         const frame = window.get_frame_rect();
-        const maxState = window.get_maximized();
+        const maxState = getWindowMaximizeState(window);
 
         snapshot.set(window.get_stable_sequence(), {
             x: frame.x,
@@ -504,10 +496,7 @@ function captureFloatingSnapshot(windows: Meta.Window[]): FloatingSnapshot {
  * Restore windows to their floating positions, fullscreen state, and z-order.
  * Called when tiling is DISABLED.
  * 
- * STACKING ORDER STRATEGY:
- * 1. Restore all windows in original stacking order (bottom to top)
- * 2. After fullscreen windows are restored (they auto-raise), 
- *    re-raise any normal windows that were ABOVE them in original order
+ * Uses actor hiding to prevent compositor animations during transition.
  */
 function restoreFloatingPositions(state: SlabState, windows: Meta.Window[]): void {
     const windowsWithSnapshot: Array<{ window: Meta.Window; snapshot: WindowSnapshot }> = [];
@@ -526,6 +515,26 @@ function restoreFloatingPositions(state: SlabState, windows: Meta.Window[]): voi
 
     console.log('[SLAB] Restoring', windowsWithSnapshot.length, 'windows in stacking order');
 
+    // Collect actors for hiding during transition
+    const windowActors: Array<{ window: Meta.Window; actor: any }> = [];
+    for (const { window } of windowsWithSnapshot) {
+        const actor = window.get_compositor_private();
+        if (actor) {
+            windowActors.push({ window, actor });
+        }
+    }
+
+    // STEP 2: Use GNOME Shell's native mechanism to skip animations
+    console.log('[SLAB] Suppressing animations via Main.wm.skipNextEffect');
+    for (const { actor } of windowActors) {
+        try {
+            // This flag is auto-cleared by Shell after the next effect
+            Main.wm.skipNextEffect(actor);
+        } catch (e) {
+            console.error('[SLAB] Error suppressing animations:', e);
+        }
+    }
+
     // Find the highest stackIndex of any fullscreen window
     let maxFullscreenStackIndex = -1;
     for (const { snapshot } of windowsWithSnapshot) {
@@ -534,55 +543,54 @@ function restoreFloatingPositions(state: SlabState, windows: Meta.Window[]): voi
         }
     }
 
-    // === PHASE 1: Restore all windows in stacking order ===
-    for (const { window, snapshot } of windowsWithSnapshot) {
-        try {
-            // VISUAL DECOUPLING
-            // Instant visual update by manipulating the actor directly
-            const actor = window.get_compositor_private() as Clutter.Actor | null;
-            if (actor) {
-                const csd = calculateCSDDelta(window);
-                const actorX = snapshot.x - csd.left;
-                const actorY = snapshot.y - csd.top;
-                const actorW = snapshot.width + csd.left + csd.right;
-                const actorH = snapshot.height + csd.top + csd.bottom;
+    // Schedule all restores synchronized with compositor redraw
+    scheduleBeforeRedraw(() => {
+        console.log('[SLAB] Restore callback executing');
 
-                actor.set_position(actorX, actorY);
-                actor.set_size(actorW, actorH);
-            }
-
-            // Restore actual window state
-            window.move_resize_frame(true, snapshot.x, snapshot.y, snapshot.width, snapshot.height);
-
-            // Restore maximize state
-            if (snapshot.wasMaximized === 3) {
-                window.maximize(Meta.MaximizeFlags.BOTH);
-            } else if (snapshot.wasMaximized === 1) {
-                window.maximize(Meta.MaximizeFlags.HORIZONTAL);
-            } else if (snapshot.wasMaximized === 2) {
-                window.maximize(Meta.MaximizeFlags.VERTICAL);
-            }
-
-            // Restore fullscreen state (auto-raise)
-            if (snapshot.wasFullscreen) {
-                window.make_fullscreen();
-            }
-        } catch (e) {
-            console.log('[SLAB] Error restoring window:', window.title);
-        }
-    }
-
-    // === PHASE 2: Re-raise windows that were ABOVE fullscreen windows ===
-    // Fullscreen windows auto-raise when make_fullscreen() is called,
-    // so we need to re-raise any normal windows that should be on top of them
-    if (maxFullscreenStackIndex >= 0) {
+        // === PHASE 1: Restore all windows in stacking order ===
         for (const { window, snapshot } of windowsWithSnapshot) {
-            if (!snapshot.wasFullscreen && snapshot.stackIndex > maxFullscreenStackIndex) {
-                console.log('[SLAB] Re-raising window above fullscreen:', window.title);
-                window.raise();
+            try {
+                if (window.is_hidden()) continue;
+
+                // Restore geometry
+                window.move_resize_frame(true, snapshot.x, snapshot.y, snapshot.width, snapshot.height);
+
+                // Restore maximize state
+                if (snapshot.wasMaximized === 3) {
+                    window.maximize(Meta.MaximizeFlags.BOTH);
+                } else if (snapshot.wasMaximized === 1) {
+                    window.maximize(Meta.MaximizeFlags.HORIZONTAL);
+                } else if (snapshot.wasMaximized === 2) {
+                    window.maximize(Meta.MaximizeFlags.VERTICAL);
+                }
+
+                // Restore fullscreen state
+                if (snapshot.wasFullscreen) {
+                    window.make_fullscreen();
+                }
+            } catch (e) {
+                console.log('[SLAB] Error restoring window:', window.title);
             }
         }
-    }
+
+        // === PHASE 2: Re-raise windows that were ABOVE fullscreen windows ===
+        if (maxFullscreenStackIndex >= 0) {
+            for (const { window, snapshot } of windowsWithSnapshot) {
+                if (!snapshot.wasFullscreen && snapshot.stackIndex > maxFullscreenStackIndex) {
+                    try {
+                        if (!window.is_hidden()) {
+                            window.raise();
+                        }
+                    } catch (e) { }
+                }
+            }
+        }
+
+        // === PHASE 3: Restore actor state ===
+        scheduleBeforeRedraw(() => {
+            console.log('[SLAB] Restore complete');
+        });
+    });
 }
 
 // =============================================================================
@@ -590,117 +598,175 @@ function restoreFloatingPositions(state: SlabState, windows: Meta.Window[]): voi
 // =============================================================================
 /**
  * toggleSlab - The main entry point triggered by keybinding.
- * 
- * This implements the "Context Switch" pattern:
- * - When enabling: Snapshot current positions, then tile
- * - When disabling: Restore from snapshot
  */
 function toggleSlab(state: SlabState): void {
+    console.log('[SLAB] === toggleSlab called, tilingEnabled:', state.tilingEnabled, '===');
+
     // Suspend animations for instant transitions
     suspendAnimations();
 
     if (state.tilingEnabled) {
         // === DISABLE TILING ===
-        // Restore windows to their floating positions using the stored snapshot
-        const windows = getTileableWindows();
+        console.log('[SLAB] Disabling tiling on monitor:', state.currentMonitor);
+        const windows = getTileableWindows(state.currentMonitor);
+        console.log('[SLAB] Found', windows.length, 'windows to restore');
         restoreFloatingPositions(state, windows);
         state.tilingEnabled = false;
         state.floatingSnapshot.clear();
 
-        // Resume animations after a delay to ensure async operations like make_fullscreen complete
-        GLib.timeout_add(GLib.PRIORITY_DEFAULT, 100, () => {
+        // Resume animations after restore completes
+        console.log('[SLAB] Scheduling animation resume via scheduleBeforeRedraw');
+        scheduleBeforeRedraw(() => {
+            console.log('[SLAB] Animation resume callback executing');
             resumeAnimations();
-            return GLib.SOURCE_REMOVE;
         });
     } else {
         // === ENABLE TILING ===
-        // Apply Master-Stack layout (this also captures the snapshot BEFORE unfullscreening)
-        // Animation resume is handled inside applyMasterStackToWorkspace after all ops complete
+        // Store the current monitor (where focused window is)
+        state.currentMonitor = global.display.get_current_monitor();
+        console.log('[SLAB] Enabling tiling on monitor:', state.currentMonitor);
         state.tilingEnabled = true;
-        applyMasterStackToWorkspace(state, true); // true = capture snapshot
+        applyMasterStackToWorkspace(state, true);
     }
+
+    console.log('[SLAB] === toggleSlab completed ===');
 }
 
 /**
  * Apply Master-Stack layout to all tileable windows.
- * 
- * @param captureSnapshot - If true, capture window state snapshot BEFORE unfullscreening
  */
 function applyMasterStackToWorkspace(state: SlabState, captureSnapshot: boolean = false): void {
-    if (!state.settings) return;
+    console.log('[SLAB] applyMasterStackToWorkspace called, captureSnapshot:', captureSnapshot);
+
+    if (!state.settings) {
+        console.error('[SLAB] No settings available!');
+        resumeAnimations();
+        return;
+    }
 
     const display = global.display;
     const workspace = display.get_workspace_manager().get_active_workspace();
-    const monitor = display.get_current_monitor();
+    const monitor = state.currentMonitor;
 
-    // Get ALL normal windows on workspace (including fullscreen/maximized)
+    console.log('[SLAB] Current monitor:', monitor);
+
+    // Get ALL normal windows on workspace AND current monitor (including fullscreen/maximized)
     const allWindows = workspace.list_windows().filter((window: Meta.Window) => {
         if (window.window_type !== Meta.WindowType.NORMAL) return false;
         if (window.is_on_all_workspaces()) return false;
+        if (window.get_monitor() !== monitor) return false; // Only current monitor!
         return true;
     });
 
-    if (allWindows.length === 0) return;
+    console.log('[SLAB] All normal windows on workspace and monitor:', allWindows.length);
+
+    if (allWindows.length === 0) {
+        console.log('[SLAB] No windows to tile on this monitor!');
+        resumeAnimations();
+        return;
+    }
 
     // STEP 1: Capture snapshot BEFORE unfullscreening (if requested)
     if (captureSnapshot) {
         console.log('[SLAB] Capturing snapshot of', allWindows.length, 'windows');
-        state.floatingSnapshot = captureFloatingSnapshot(allWindows);
+        try {
+            state.floatingSnapshot = captureFloatingSnapshot(allWindows);
+            console.log('[SLAB] Snapshot captured successfully');
+        } catch (e) {
+            console.error('[SLAB] Error capturing snapshot:', e);
+            resumeAnimations();
+            return;
+        }
     }
 
-    // STEP 2: Unfullscreen and unmaximize ALL windows
-    let needsDelay = false;
+    console.log('[SLAB] Preparing atomic transition');
+
+    // Collect actors for all windows we'll modify
+    const windowActors: Array<{ window: Meta.Window; actor: any }> = [];
     for (const window of allWindows) {
-        if (window.is_fullscreen()) {
-            console.log('[SLAB] Unfullscreening window:', window.title);
-            window.unmake_fullscreen();
-            needsDelay = true;
+        const actor = window.get_compositor_private();
+        if (actor) {
+            windowActors.push({ window, actor });
         }
-        const maxState = window.get_maximized();
-        if (maxState === Meta.MaximizeFlags.HORIZONTAL ||
-            maxState === Meta.MaximizeFlags.VERTICAL ||
-            maxState === Meta.MaximizeFlags.BOTH) {
-            console.log('[SLAB] Unmaximizing window:', window.title);
-            window.unmaximize(Meta.MaximizeFlags.BOTH);
-            needsDelay = true;
+        if (window.is_fullscreen()) {
+            console.log('[SLAB] Window is fullscreen:', window.title);
         }
     }
 
-    // STEP 3: Apply tiling (with delay if we unfullscreened/unmaximized)
-    const doTiling = () => {
-        // Re-fetch tileable windows after unfullscreen/unmaximize
-        const windows = getTileableWindows();
-        if (windows.length === 0) return;
+    // STEP 2: Use GNOME Shell's native mechanism to skip animations
+    console.log('[SLAB] Suppressing animations via Main.wm.skipNextEffect');
+    for (const { actor } of windowActors) {
+        try {
+            // This flag is auto-cleared by Shell after the next effect
+            Main.wm.skipNextEffect(actor);
+        } catch (e) {
+            console.error('[SLAB] Error suppressing animations:', e);
+        }
+    }
+
+    // STEP 3: Do all state changes in ONE BEFORE_REDRAW callback
+    scheduleBeforeRedraw(() => {
+        console.log('[SLAB] === Atomic transition executing ===');
+
+        // First: unfullscreen and unmaximize all windows
+        for (const window of allWindows) {
+            try {
+                if (window.is_hidden()) continue;
+
+                if (window.is_fullscreen()) {
+                    console.log('[SLAB] Unfullscreening:', window.title);
+                    window.unmake_fullscreen();
+                }
+
+                const maxState = getWindowMaximizeState(window);
+                if (maxState !== 0) {
+                    console.log('[SLAB] Unmaximizing:', window.title);
+                    window.unmaximize(Meta.MaximizeFlags.BOTH);
+                }
+            } catch (e) {
+                console.error('[SLAB] Error unfullscreening:', e);
+            }
+        }
+
+        // Get tileable windows and calculate layout
+        const windows = getTileableWindows(monitor);
+        console.log('[SLAB] Tileable windows:', windows.length);
+
+        if (windows.length === 0) {
+            // Restore actor state
+            // Restore actor state
+            // No cleanup needed for skipNextEffect
+            console.log('[SLAB] No tileable windows, resuming animations');
+            resumeAnimations();
+            return;
+        }
 
         const workArea = workspace.get_work_area_for_monitor(monitor);
-        console.log('[SLAB] Work area:', workArea.x, workArea.y, workArea.width, workArea.height);
+        console.log('[SLAB] Work area:', workArea.x, workArea.y, workArea.width, 'x', workArea.height);
 
-        // Read layout settings
         const masterRatio = state.settings!.get_double('master-ratio');
         const gap = state.settings!.get_int('window-gap');
 
-        // Calculate layout (O(1) per window)
         const layout = calculateMasterStackLayout(windows, workArea, masterRatio, gap);
+        console.log('[SLAB] Calculated layout for', layout.length, 'windows');
 
-        // Apply tiling to each window
+        // Apply geometry to all windows
         for (const { window, x, y, w, h } of layout) {
-            console.log('[SLAB] Tiling window:', window.title, 'to', x, y, w, h);
-            applyTiling(state, window, x, y, w, h);
+            try {
+                if (window.is_hidden()) continue;
+                console.log('[SLAB] Moving:', window.title, 'to', x, y, w, h);
+                window.move_resize_frame(true, x, y, w, h);
+            } catch (e) {
+                console.error('[SLAB] Error tiling window:', window.title, e);
+            }
         }
 
-        // Resume animations after tiling is complete
-        resumeAnimations();
-    };
-
-    if (needsDelay) {
-        // Wait 50ms for unfullscreen/unmaximize to take effect
-        GLib.timeout_add(GLib.PRIORITY_DEFAULT, 50, () => {
-            doTiling();
-            return GLib.SOURCE_REMOVE;
+        // STEP 4: Resume animations
+        scheduleBeforeRedraw(() => {
+            console.log('[SLAB] All geometry applied, resuming animations');
+            resumeAnimations();
         });
-    } else {
-        doTiling();
-    }
+    });
 }
 
 // =============================================================================
@@ -720,6 +786,7 @@ export default class SlabExtension extends Extension {
             signalIds: [],
             blockedSignals: new Map(),
             pendingLaterId: null,
+            currentMonitor: 0,
         };
 
         console.log('[SLAB] Settings loaded:', this._state.settings);
@@ -747,12 +814,11 @@ export default class SlabExtension extends Extension {
         const display = global.display;
         const sigId = display.connect('window-created', (_display: Meta.Display, _window: Meta.Window) => {
             if (this._state?.tilingEnabled) {
-                // Defer layout update to let the window settle (100ms delay)
-                GLib.timeout_add(GLib.PRIORITY_DEFAULT, 100, () => {
+                // Schedule layout update synchronized with compositor
+                scheduleBeforeRedraw(() => {
                     if (this._state?.tilingEnabled) {
                         applyMasterStackToWorkspace(this._state);
                     }
-                    return GLib.SOURCE_REMOVE;
                 });
             }
         });
@@ -764,7 +830,7 @@ export default class SlabExtension extends Extension {
 
         // Restore floating positions if tiling was active
         if (this._state.tilingEnabled) {
-            const windows = getTileableWindows();
+            const windows = getTileableWindows(this._state.currentMonitor);
             restoreFloatingPositions(this._state, windows);
         }
 

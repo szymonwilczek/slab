@@ -403,6 +403,11 @@ declare module 'resource:///org/gnome/shell/ui/main.js' {
             callback: () => void
         ): void;
         removeKeybinding(name: string): void;
+        /**
+         * Skip the next effect on the given actor.
+         * Used to bypass unfullscreen/unmaximize animations.
+         */
+        skipNextEffect(actor: Clutter.Actor): void;
     };
 
     export const layoutManager: {

@@ -2,7 +2,13 @@
   "name": "SLAB",
   "description": "High-performance Actor-First tiling window manager with zero-latency visual feedback",
   "uuid": "slab@slab.dev",
-  "shell-version": ["45", "46", "47", "48"],
+  "shell-version": [
+    "45",
+    "46",
+    "47",
+    "48",
+    "49"
+  ],
   "version": 1,
   "url": "https://github.com/szymonwilczek/slab",
   "settings-schema": "org.gnome.shell.extensions.slab"
