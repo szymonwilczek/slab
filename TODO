@@ -1,0 +1,6 @@
+- window closing adjusting position of the rest active windows
+
+- remove this freaking firefox (right corner) resize animation
+
+- resolve issue for more than 3 open windows (proper space dividing for master stack)
+
