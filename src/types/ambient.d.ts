@@ -289,6 +289,13 @@ declare module 'gi://Clutter' {
 
         show(): void;
         hide(): void;
+
+        // Easing state methods
+        save_easing_state(): void;
+        restore_easing_state(): void;
+        set_easing_duration(msecs: number): void;
+        set_easing_mode(mode: number): void;
+        remove_all_transitions(): void;
     }
 }
 
