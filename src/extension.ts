@@ -452,24 +452,69 @@ function toggleSlab(state: SlabState): void {
 function applyMasterStackToWorkspace(state: SlabState): void {
     if (!state.settings) return;
 
-    const windows = getTileableWindows();
-    if (windows.length === 0) return;
-
-    // Get work area (excludes panels, docks)
     const display = global.display;
+    const workspace = display.get_workspace_manager().get_active_workspace();
     const monitor = display.get_current_monitor();
-    const workArea = display.get_monitor_geometry(monitor);
 
-    // Read layout settings
-    const masterRatio = state.settings.get_double('master-ratio');
-    const gap = state.settings.get_int('window-gap');
+    // Get ALL normal windows on workspace (including fullscreen/maximized)
+    const allWindows = workspace.list_windows().filter((window: Meta.Window) => {
+        if (window.window_type !== Meta.WindowType.NORMAL) return false;
+        if (window.is_on_all_workspaces()) return false;
+        // Don't filter by is_hidden() yet - fullscreen might affect this
+        return true;
+    });
 
-    // Calculate layout (O(1) per window)
-    const layout = calculateMasterStackLayout(windows, workArea, masterRatio, gap);
+    if (allWindows.length === 0) return;
 
-    // Apply tiling to each window
-    for (const { window, x, y, w, h } of layout) {
-        applyTiling(state, window, x, y, w, h);
+    // STEP 1: Unfullscreen and unmaximize ALL windows first
+    let needsDelay = false;
+    for (const window of allWindows) {
+        if (window.is_fullscreen()) {
+            console.log('[SLAB] Unfullscreening window:', window.title);
+            window.unmake_fullscreen();
+            needsDelay = true;
+        }
+        const maxState = window.get_maximized();
+        if (maxState === Meta.MaximizeFlags.HORIZONTAL ||
+            maxState === Meta.MaximizeFlags.VERTICAL ||
+            maxState === Meta.MaximizeFlags.BOTH) {
+            console.log('[SLAB] Unmaximizing window:', window.title);
+            window.unmaximize(Meta.MaximizeFlags.BOTH);
+            needsDelay = true;
+        }
+    }
+
+    // STEP 2: Apply tiling (with delay if we unfullscreened/unmaximized)
+    const doTiling = () => {
+        // Re-fetch tileable windows after unfullscreen/unmaximize
+        const windows = getTileableWindows();
+        if (windows.length === 0) return;
+
+        const workArea = workspace.get_work_area_for_monitor(monitor);
+        console.log('[SLAB] Work area:', workArea.x, workArea.y, workArea.width, workArea.height);
+
+        // Read layout settings
+        const masterRatio = state.settings!.get_double('master-ratio');
+        const gap = state.settings!.get_int('window-gap');
+
+        // Calculate layout (O(1) per window)
+        const layout = calculateMasterStackLayout(windows, workArea, masterRatio, gap);
+
+        // Apply tiling to each window
+        for (const { window, x, y, w, h } of layout) {
+            console.log('[SLAB] Tiling window:', window.title, 'to', x, y, w, h);
+            applyTiling(state, window, x, y, w, h);
+        }
+    };
+
+    if (needsDelay) {
+        // Wait 50ms for unfullscreen/unmaximize to take effect
+        GLib.timeout_add(GLib.PRIORITY_DEFAULT, 50, () => {
+            doTiling();
+            return GLib.SOURCE_REMOVE;
+        });
+    } else {
+        doTiling();
     }
 }
 

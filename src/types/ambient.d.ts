@@ -123,8 +123,14 @@ declare module 'gi://Meta' {
         is_on_all_workspaces(): boolean;
         is_skip_taskbar(): boolean;
         is_hidden(): boolean;
+        is_fullscreen(): boolean;
         allows_move(): boolean;
         allows_resize(): boolean;
+
+        /**
+         * Unfullscreen the window
+         */
+        unmake_fullscreen(): void;
 
         /**
          * move_resize_frame() - The PROTOCOL-LEVEL resize
@@ -153,6 +159,12 @@ declare module 'gi://Meta' {
     export class Workspace {
         index(): number;
         list_windows(): Window[];
+
+        /**
+         * Get work area for a specific monitor, excluding panels and docks.
+         * CRITICAL: Use this instead of Display.get_monitor_geometry() for tiling.
+         */
+        get_work_area_for_monitor(monitor: number): Rectangle;
     }
 
     export class WorkspaceManager {
