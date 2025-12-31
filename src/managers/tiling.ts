@@ -155,6 +155,7 @@ export function restoreFloatingPositions(state: SlabState, windows: Meta.Window[
                 actor.save_easing_state();
                 actor.set_easing_duration(0);
                 (actor as any).remove_all_transitions();
+                actor.hide();
             } catch (e) {
                 console.error('[SLAB] Error inhibiting animations:', e);
             }
@@ -206,6 +207,7 @@ export function restoreFloatingPositions(state: SlabState, windows: Meta.Window[
             for (const { actor } of windowActors) {
                 try {
                     actor.restore_easing_state();
+                    actor.show();
                 } catch (e) { }
             }
         });
@@ -291,6 +293,9 @@ export function applyMasterStackToWorkspace(state: SlabState, captureSnapshot: b
                 actor.save_easing_state();
                 actor.set_easing_duration(0);
                 (actor as any).remove_all_transitions();
+
+                // 3. FORCE HIDE to treat this visual update as atomic
+                actor.hide();
             } catch (e) {
                 console.error('[SLAB] Error inhibiting animations:', e);
             }
@@ -355,6 +360,7 @@ export function applyMasterStackToWorkspace(state: SlabState, captureSnapshot: b
             for (const { actor } of windowActors) {
                 try {
                     actor.restore_easing_state();
+                    actor.show();
                 } catch (e) { }
             }
             resumeAnimations();
