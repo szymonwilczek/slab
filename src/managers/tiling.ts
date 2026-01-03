@@ -546,6 +546,27 @@ export function applyMasterStackToWorkspace(
                 return GLib.SOURCE_REMOVE;
               }
 
+              // Safety check: ensure window still exists (wasnt closed)
+              // by verifying the window is still in the current workspace
+              try {
+                const workspace =
+                  global.workspace_manager.get_active_workspace();
+                const currentWindows = workspace.list_windows();
+                const windowStillExists = currentWindows.some(
+                  (w: Meta.Window) =>
+                    w.get_stable_sequence() ===
+                    targetWindow.get_stable_sequence(),
+                );
+
+                if (!windowStillExists) {
+                  log("Window was closed, skipping delayed move");
+                  return GLib.SOURCE_REMOVE;
+                }
+              } catch (e) {
+                log("Error checking window existence, skipping delayed move");
+                return GLib.SOURCE_REMOVE;
+              }
+
               log(
                 `Delayed move (${NEW_WINDOW_DELAY_MS}ms) for new window:`,
                 targetWindow.title,
