@@ -13,6 +13,11 @@ import { calculateMasterStackLayout } from '../logic/layout.js';
 // Set to false for production to eliminate logging overhead
 const DEBUG = true;
 
+// Constants for timing and tuning
+const NEW_WINDOW_DELAY_MS = 100;
+const ANIMATION_FRAME_SHOW = 1;
+const ANIMATION_FRAME_RESTORE = 2;
+
 /** Conditional log - only outputs when DEBUG is true */
 function log(...args: any[]): void {
     if (DEBUG) console.log('[SLAB]', ...args);
@@ -414,7 +419,7 @@ export function applyMasterStackToWorkspace(state: SlabState, captureSnapshot: b
                         GLib.source_remove(state.pendingNewWindowTimeoutId);
                     }
 
-                    state.pendingNewWindowTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 100, () => {
+                    state.pendingNewWindowTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, NEW_WINDOW_DELAY_MS, () => {
                         state.pendingNewWindowTimeoutId = null; // Clear on execution
 
                         // Safety check: ensure tiling is still enabled
@@ -423,7 +428,7 @@ export function applyMasterStackToWorkspace(state: SlabState, captureSnapshot: b
                             return GLib.SOURCE_REMOVE;
                         }
 
-                        log('Delayed move (100ms) for new window:', targetWindow.title, 'to', targetX, targetY, targetW, targetH);
+                        log(`Delayed move (${NEW_WINDOW_DELAY_MS}ms) for new window:`, targetWindow.title, 'to', targetX, targetY, targetW, targetH);
                         try {
                             targetWindow.move_resize_frame(true, targetX, targetY, targetW, targetH);
                         } catch (e) {
@@ -442,8 +447,8 @@ export function applyMasterStackToWorkspace(state: SlabState, captureSnapshot: b
         }
 
         // STEP 4: Restore Visibility (Frame 2)
-        scheduleAfterFrames(1, () => {
-            console.log('[SLAB] Frame 2: Showing actors (easing still disabled)');
+        scheduleAfterFrames(ANIMATION_FRAME_SHOW, () => {
+            log('Frame 2: Showing actors (easing still disabled)');
             for (const { actor } of windowActors) {
                 try {
                     // Show immediately, but keep easing disabled to swallow client-side adjustments
@@ -454,8 +459,8 @@ export function applyMasterStackToWorkspace(state: SlabState, captureSnapshot: b
         });
 
         // STEP 5: Restore Easing & Resume Animations (Frame 3)
-        scheduleAfterFrames(2, () => {
-            console.log('[SLAB] Frame 3: Restoring easing state');
+        scheduleAfterFrames(ANIMATION_FRAME_RESTORE, () => {
+            log('Frame 3: Restoring easing state');
             for (const { actor } of windowActors) {
                 try {
                     actor.restore_easing_state();
