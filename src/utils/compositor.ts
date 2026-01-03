@@ -51,6 +51,24 @@ export function scheduleBeforeRedraw(callback: () => void): void {
     });
 }
 
+/**
+ * Schedule a callback to run after N frames.
+ * Uses recursive scheduleBeforeRedraw calls.
+ * 
+ * @param frames Number of frames to wait (1 = next frame, 2 = frame after next, etc.)
+ * @param callback Function to execute
+ */
+export function scheduleAfterFrames(frames: number, callback: () => void): void {
+    if (frames <= 0) {
+        callback();
+        return;
+    }
+
+    scheduleBeforeRedraw(() => {
+        scheduleAfterFrames(frames - 1, callback);
+    });
+}
+
 // =============================================================================
 // ANIMATION SUSPENSION (Using GNOME Shell Internal API)
 // =============================================================================

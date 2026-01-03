@@ -3,7 +3,7 @@ import GLib from 'gi://GLib';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 import { SlabState, WindowSnapshot, FloatingSnapshot } from '../types/index.js';
-import { scheduleBeforeRedraw, suspendAnimations, resumeAnimations } from '../utils/compositor.js';
+import { scheduleBeforeRedraw, scheduleAfterFrames, suspendAnimations, resumeAnimations } from '../utils/compositor.js';
 import { getWindowMaximizeState, getTileableWindows } from '../utils/windows.js';
 import { calculateMasterStackLayout } from '../logic/layout.js';
 
@@ -442,7 +442,7 @@ export function applyMasterStackToWorkspace(state: SlabState, captureSnapshot: b
         }
 
         // STEP 4: Restore Visibility (Frame 2)
-        scheduleBeforeRedraw(() => {
+        scheduleAfterFrames(1, () => {
             console.log('[SLAB] Frame 2: Showing actors (easing still disabled)');
             for (const { actor } of windowActors) {
                 try {
@@ -451,17 +451,17 @@ export function applyMasterStackToWorkspace(state: SlabState, captureSnapshot: b
                     (actor as any).remove_all_transitions();
                 } catch (e) { }
             }
+        });
 
-            // STEP 5: Restore Easing & Resume Animations (Frame 3)
-            scheduleBeforeRedraw(() => {
-                console.log('[SLAB] Frame 3: Restoring easing state');
-                for (const { actor } of windowActors) {
-                    try {
-                        actor.restore_easing_state();
-                    } catch (e) { }
-                }
-                resumeAnimations();
-            });
+        // STEP 5: Restore Easing & Resume Animations (Frame 3)
+        scheduleAfterFrames(2, () => {
+            console.log('[SLAB] Frame 3: Restoring easing state');
+            for (const { actor } of windowActors) {
+                try {
+                    actor.restore_easing_state();
+                } catch (e) { }
+            }
+            resumeAnimations();
         });
     });
 }
