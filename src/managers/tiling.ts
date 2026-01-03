@@ -576,18 +576,31 @@ export function connectWindowSignal(state: SlabState, window: Meta.Window): void
 
 /**
  * Disconnect all window signals (called when tiling is disabled).
+ * 
+ * SAFETY: We copy windowSignals keys to an array BEFORE iterating.
+ * This prevents the "hash table modified during iteration" crash that
+ * can occur if signal callbacks modify the map.
  */
 export function disconnectAllWindowSignals(state: SlabState): void {
-    console.log('[SLAB] Disconnecting all window signals');
+    log('Disconnecting all window signals');
 
+    // Build a lookup map of current windows
     const display = global.display;
     const workspace = display.get_workspace_manager().get_active_workspace();
     const allWindows = workspace.list_windows();
+    const windowById = new Map<number, Meta.Window>();
+    for (const w of allWindows) {
+        windowById.set(w.get_stable_sequence(), w);
+    }
 
-    for (const window of allWindows) {
-        const windowId = window.get_stable_sequence();
+    // SAFE: Copy keys to array BEFORE iterating
+    const windowIds = Array.from(state.windowSignals.keys());
+
+    for (const windowId of windowIds) {
         const signals = state.windowSignals.get(windowId);
-        if (signals) {
+        const window = windowById.get(windowId);
+
+        if (signals && window) {
             for (const sigId of signals) {
                 try {
                     window.disconnect(sigId);
@@ -596,6 +609,7 @@ export function disconnectAllWindowSignals(state: SlabState): void {
                 }
             }
         }
+        // If window doesn't exist, signals are already invalid - just skip
     }
 
     state.windowSignals.clear();
