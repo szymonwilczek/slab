@@ -49,6 +49,8 @@ export default class SlabExtension extends Extension {
             blockedSignals: new Map(),
             pendingLaterId: null,
             currentMonitor: 0,
+            currentMasterWindowId: null,
+            windowSignals: new Map(),
         };
 
         console.log('[SLAB] Settings loaded:', this._state.settings);

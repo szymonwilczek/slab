@@ -35,7 +35,7 @@ export interface SlabState {
     floatingSnapshot: FloatingSnapshot;
     /** GSettings instance */
     settings: Gio.Settings | null;
-    /** Connected signal IDs for cleanup */
+    /** Connected signal IDs for cleanup (display-level signals) */
     signalIds: number[];
     /** Map of window ID -> blocked signal handler IDs */
     blockedSignals: Map<number, number[]>;
@@ -43,6 +43,10 @@ export interface SlabState {
     pendingLaterId: number | null;
     /** Monitor index where tiling is active */
     currentMonitor: number;
+    /** Current Master window stable_sequence (for promotion on close) */
+    currentMasterWindowId: number | null;
+    /** Map of window stable_sequence -> connected signal handler IDs */
+    windowSignals: Map<number, number[]>;
 }
 
 // Global declaration for TypeScript

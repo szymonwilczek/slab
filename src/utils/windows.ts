@@ -76,19 +76,18 @@ export function _unblockWindowSignals(state: SlabState, window: Meta.Window): vo
  * Get windows eligible for tiling on the active workspace AND specified monitor.
  * 
  * IMPORTANT: Returns windows in STACKING ORDER (bottom to top),
- * with the FOCUSED window moved to the FRONT (will be master).
+ * with the MASTER window moved to the FRONT.
  * 
- * We filter out:
- * - Non-normal windows (dialogs, menus, etc.)
- * - Windows on other workspaces
- * - Windows on other monitors
- * - Windows that can't be moved/resized
- * - Minimized/hidden windows
+ * Master selection priority:
+ * 1. newWindow (if provided) - User just opened it
+ * 2. currentMasterId (if provided) - Preserve existing Master
+ * 3. focusedWindow - Fallback for initial tiling
  * 
  * @param monitor - Monitor index to filter windows for
- * @param newWindow - Optional new window to force-include (bypass hidden check) and force-master
+ * @param newWindow - Optional new window to force-include and force-master
+ * @param currentMasterId - Optional current Master's stable_sequence to preserve
  */
-export function getTileableWindows(monitor: number, newWindow?: Meta.Window): Meta.Window[] {
+export function getTileableWindows(monitor: number, newWindow?: Meta.Window, currentMasterId?: number | null): Meta.Window[] {
     const display = global.display;
     const workspace = display.get_workspace_manager().get_active_workspace();
 
@@ -137,27 +136,53 @@ export function getTileableWindows(monitor: number, newWindow?: Meta.Window): Me
         tileableWindows.push(window);
     }
 
-    console.log(`[SLAB-DEBUG] Found ${tileableWindows.length} candidates. Focused: ${focusedWindow?.title} New: ${newWindow?.title}`);
+    console.log(`[SLAB-DEBUG] Found ${tileableWindows.length} candidates. Focused: ${focusedWindow?.title} New: ${newWindow?.title} CurrentMaster: ${currentMasterId}`);
+
+    // CRITICAL: If newWindow is provided but not yet in actors list (race condition),
+    // add it manually to the front of candidates
+    if (newWindow) {
+        const newWindowId = newWindow.get_stable_sequence();
+        const alreadyInList = tileableWindows.some(w => w.get_stable_sequence() === newWindowId);
+        if (!alreadyInList) {
+            console.log(`[SLAB-DEBUG] newWindow not in actors yet, adding manually to front`);
+            tileableWindows.unshift(newWindow);
+        }
+    }
 
     // LOGIC: Determine Master Window
     // Priority 1: newWindow (if provided) - User just opened it, they want it here.
-    // Priority 2: focusedWindow - Existing behavior.
+    // Priority 2: currentMasterId (if provided) - Preserve existing Master position!
+    // Priority 3: focusedWindow - Fallback for initial tiling.
 
-    let masterWindow = focusedWindow;
+    let masterWindowId: number | null = null;
+
     if (newWindow) {
-        masterWindow = newWindow;
+        masterWindowId = newWindow.get_stable_sequence();
+        console.log(`[SLAB-DEBUG] Master priority 1: newWindow`);
+    } else if (currentMasterId !== null && currentMasterId !== undefined) {
+        // Check if current master is still in the candidate list
+        const existingMaster = tileableWindows.find(w => w.get_stable_sequence() === currentMasterId);
+        if (existingMaster) {
+            masterWindowId = currentMasterId;
+            console.log(`[SLAB-DEBUG] Master priority 2: preserving currentMaster`);
+        }
     }
 
-    if (masterWindow) {
+    if (masterWindowId === null && focusedWindow) {
+        masterWindowId = focusedWindow.get_stable_sequence();
+        console.log(`[SLAB-DEBUG] Master priority 3: focusedWindow`);
+    }
+
+    if (masterWindowId !== null) {
         const masterIndex = tileableWindows.findIndex(w =>
-            w.get_stable_sequence() === masterWindow.get_stable_sequence());
+            w.get_stable_sequence() === masterWindowId);
 
         if (masterIndex >= 0) {
-            console.log(`[SLAB-DEBUG] Master window ${masterWindow.title} found at index ${masterIndex}, moving to front`);
+            console.log(`[SLAB-DEBUG] Master window found at index ${masterIndex}, moving to front`);
             const [master] = tileableWindows.splice(masterIndex, 1);
             tileableWindows.unshift(master);
         } else {
-            console.log(`[SLAB-DEBUG] Master window ${masterWindow.title} NOT found in candidates!`);
+            console.log(`[SLAB-DEBUG] Master window NOT found in candidates!`);
         }
     }
 

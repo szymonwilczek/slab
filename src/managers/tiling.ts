@@ -1,4 +1,5 @@
 import Meta from 'gi://Meta';
+import GLib from 'gi://GLib';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 import { SlabState, WindowSnapshot, FloatingSnapshot } from '../types/index.js';
@@ -155,9 +156,13 @@ export function restoreFloatingPositions(state: SlabState, windows: Meta.Window[
         const snapshot = state.floatingSnapshot.get(window.get_stable_sequence());
         if (snapshot) {
             windowsWithSnapshot.push({ window, snapshot });
+            console.log(`[SLAB] Found snapshot for ${window.title}: ${snapshot.x},${snapshot.y} ${snapshot.width}x${snapshot.height}`);
+        } else {
+            console.log(`[SLAB] NO snapshot for ${window.title} (ID: ${window.get_stable_sequence()})`);
         }
     }
 
+    console.log(`[SLAB] Snapshot map has ${state.floatingSnapshot.size} entries, matched ${windowsWithSnapshot.length} windows`);
     if (windowsWithSnapshot.length === 0) return;
 
     // Sort by stackIndex (bottom to top) to restore in correct z-order
@@ -207,7 +212,8 @@ export function restoreFloatingPositions(state: SlabState, windows: Meta.Window[
         // === PHASE 1: Restore all windows in stacking order ===
         for (const { window, snapshot } of windowsWithSnapshot) {
             try {
-                if (window.is_hidden()) continue;
+                // NOTE: Do NOT check is_hidden() here - we just called actor.hide() above!
+                console.log(`[SLAB] Restoring ${window.title} to ${snapshot.x},${snapshot.y} ${snapshot.width}x${snapshot.height}`);
 
                 // Restore geometry
                 window.move_resize_frame(true, snapshot.x, snapshot.y, snapshot.width, snapshot.height);
@@ -325,7 +331,7 @@ export function applyMasterStackToWorkspace(state: SlabState, captureSnapshot: b
         console.log('[SLAB] === Atomic transition executing ===');
 
         // Suppress animations for all windows involved
-        for (const { actor } of windowActors) {
+        for (const { window, actor } of windowActors) {
             try {
                 // 1. Skip Shell-level effects (Minimize/Maximize/Map)
                 Main.wm.skipNextEffect(actor);
@@ -336,7 +342,11 @@ export function applyMasterStackToWorkspace(state: SlabState, captureSnapshot: b
                 (actor as any).remove_all_transitions();
 
                 // 3. FORCE HIDE to treat this visual update as atomic
-                actor.hide();
+                // BUT: Skip hiding for newWindow - we want it to appear immediately at correct position
+                // to avoid the visible "jump" from center to left
+                if (!newWindow || window.get_stable_sequence() !== newWindow.get_stable_sequence()) {
+                    actor.hide();
+                }
             } catch (e) {
                 console.error('[SLAB] Error inhibiting animations:', e);
             }
@@ -363,7 +373,7 @@ export function applyMasterStackToWorkspace(state: SlabState, captureSnapshot: b
         }
 
         // Get tileable windows and calculate layout
-        const windows = getTileableWindows(monitor, newWindow);
+        const windows = getTileableWindows(monitor, newWindow, state.currentMasterWindowId);
         console.log('[SLAB] Tileable windows:', windows.length);
 
         // REVERSE STACK ORDER for UX
@@ -393,6 +403,17 @@ export function applyMasterStackToWorkspace(state: SlabState, captureSnapshot: b
         const layout = calculateMasterStackLayout(windows, workArea, masterRatio, gap);
         console.log('[SLAB] Calculated layout for', layout.length, 'windows');
 
+        // Track Master window (first in layout is Master)
+        if (layout.length > 0) {
+            state.currentMasterWindowId = layout[0].window.get_stable_sequence();
+            console.log('[SLAB] Current Master:', layout[0].window.title);
+        }
+
+        // Connect unmanaging signals to all windows in layout
+        for (const { window } of layout) {
+            connectWindowSignal(state, window);
+        }
+
         // Apply geometry to all windows
         for (const { window, x, y, w, h } of layout) {
             try {
@@ -411,20 +432,18 @@ export function applyMasterStackToWorkspace(state: SlabState, captureSnapshot: b
 
                     // DELAYED MOVE FOR NEW WINDOW (Bug 1 fix)
                     // New windows might not be fully mapped yet, so move_resize_frame fails.
-                    // We do BOTH immediate (might fail) AND delayed (backup) moves.
+                    // We use GLib.timeout_add for a reliable time-based 100ms delay
+                    // This ensures the window is fully visible and initialized before resize.
                     const targetX = x, targetY = y, targetW = w, targetH = h;
                     const targetWindow = window;
-                    scheduleBeforeRedraw(() => {
-                        scheduleBeforeRedraw(() => {
-                            scheduleBeforeRedraw(() => {
-                                console.log('[SLAB] Delayed move (3 frames) for new window:', targetWindow.title, 'to', targetX, targetY, targetW, targetH);
-                                try {
-                                    targetWindow.move_resize_frame(true, targetX, targetY, targetW, targetH);
-                                } catch (e) {
-                                    console.error('[SLAB] Delayed move failed:', e);
-                                }
-                            });
-                        });
+                    GLib.timeout_add(GLib.PRIORITY_DEFAULT, 100, () => {
+                        console.log('[SLAB] Delayed move (100ms) for new window:', targetWindow.title, 'to', targetX, targetY, targetW, targetH);
+                        try {
+                            targetWindow.move_resize_frame(true, targetX, targetY, targetW, targetH);
+                        } catch (e) {
+                            console.error('[SLAB] Delayed move failed:', e);
+                        }
+                        return GLib.SOURCE_REMOVE;
                     });
                     // Don't skip immediate move - do both!
                 }
@@ -476,6 +495,10 @@ export function toggleSlab(state: SlabState): void {
     if (state.tilingEnabled) {
         // === DISABLE TILING ===
         console.log('[SLAB] Disabling tiling on monitor:', state.currentMonitor);
+
+        // Disconnect all window signals first
+        disconnectAllWindowSignals(state);
+
         const windows = getTileableWindows(state.currentMonitor);
         console.log('[SLAB] Found', windows.length, 'windows to restore');
         restoreFloatingPositions(state, windows);
@@ -498,4 +521,111 @@ export function toggleSlab(state: SlabState): void {
     }
 
     console.log('[SLAB] === toggleSlab completed ===');
+}
+
+// =============================================================================
+// WINDOW CLOSE HANDLING
+// =============================================================================
+
+/**
+ * Handle window close event - recalculate layout with Master succession logic.
+ * 
+ * Rules:
+ * - If Master is closed: top-right stack window becomes new Master (counter-clockwise)
+ * - If other window is closed: recalculate layout, Master stays same (clockwise fill)
+ */
+export function handleWindowClose(state: SlabState, closedWindow: Meta.Window): void {
+    console.log('[SLAB] handleWindowClose called for:', closedWindow.title);
+
+    if (!state.tilingEnabled) {
+        console.log('[SLAB] Tiling not enabled, ignoring window close');
+        return;
+    }
+
+    const closedId = closedWindow.get_stable_sequence();
+
+    // Remove from snapshot
+    state.floatingSnapshot.delete(closedId);
+
+    // Disconnect signals for this window
+    const signals = state.windowSignals.get(closedId);
+    if (signals) {
+        for (const sigId of signals) {
+            try {
+                closedWindow.disconnect(sigId);
+            } catch (e) {
+                // Window might already be destroyed
+            }
+        }
+        state.windowSignals.delete(closedId);
+    }
+
+    // Check if closed window was the Master
+    const wasMaster = state.currentMasterWindowId === closedId;
+    console.log('[SLAB] Was Master?', wasMaster);
+
+    if (wasMaster) {
+        // Master closed: clear the Master ID, applyMasterStackToWorkspace will pick new one
+        // based on focus/stacking order (top-right becomes new Master via reversed stack logic)
+        state.currentMasterWindowId = null;
+        console.log('[SLAB] Master closed, will promote new Master from stack');
+    }
+
+    // Recalculate layout
+    scheduleBeforeRedraw(() => {
+        if (state.tilingEnabled) {
+            console.log('[SLAB] Recalculating layout after window close');
+            applyMasterStackToWorkspace(state, false);
+        }
+    });
+}
+
+/**
+ * Connect 'unmanaging' signal to a window for close handling.
+ */
+export function connectWindowSignal(state: SlabState, window: Meta.Window): void {
+    const windowId = window.get_stable_sequence();
+
+    // Skip if already connected
+    if (state.windowSignals.has(windowId)) {
+        return;
+    }
+
+    try {
+        const sigId = window.connect('unmanaging', () => {
+            handleWindowClose(state, window);
+        });
+        state.windowSignals.set(windowId, [sigId]);
+        console.log('[SLAB] Connected unmanaging signal for:', window.title);
+    } catch (e) {
+        console.error('[SLAB] Failed to connect unmanaging signal:', e);
+    }
+}
+
+/**
+ * Disconnect all window signals (called when tiling is disabled).
+ */
+export function disconnectAllWindowSignals(state: SlabState): void {
+    console.log('[SLAB] Disconnecting all window signals');
+
+    const display = global.display;
+    const workspace = display.get_workspace_manager().get_active_workspace();
+    const allWindows = workspace.list_windows();
+
+    for (const window of allWindows) {
+        const windowId = window.get_stable_sequence();
+        const signals = state.windowSignals.get(windowId);
+        if (signals) {
+            for (const sigId of signals) {
+                try {
+                    window.disconnect(sigId);
+                } catch (e) {
+                    // Window might have been destroyed
+                }
+            }
+        }
+    }
+
+    state.windowSignals.clear();
+    state.currentMasterWindowId = null;
 }
