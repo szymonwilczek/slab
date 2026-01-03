@@ -255,7 +255,8 @@ export function applyMasterStackToWorkspace(state: SlabState, captureSnapshot: b
         console.log('[SLAB] New window detected, will capture snapshot after layout calc');
     } else if (captureSnapshot) {
         // CASE B: Enabling tiling -> Snapshot EVERYONE
-        console.log('[SLAB] Enabling tiling, capturing full snapshot');
+        log('Enabling tiling, clearing old snapshots and capturing full snapshot');
+        state.floatingSnapshot.clear(); // Clear old entries to prevent memory leak
         state.floatingSnapshot = captureFloatingSnapshot(allWindows);
     }
 
