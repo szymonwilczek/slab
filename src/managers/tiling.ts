@@ -353,9 +353,30 @@ export function applyMasterStackToWorkspace(state: SlabState, captureSnapshot: b
         }
 
         // First: unfullscreen and unmaximize all windows
+        // CRITICAL: Handle newWindow EXPLICITLY first - it might not be in allWindows yet (race condition)
+        // or might have been fullscreen/maximized in previous session
+        if (newWindow) {
+            try {
+                if (newWindow.is_fullscreen()) {
+                    console.log('[SLAB] Unfullscreening NEW WINDOW:', newWindow.title);
+                    newWindow.unmake_fullscreen();
+                }
+                const newMaxState = getWindowMaximizeState(newWindow);
+                if (newMaxState !== 0) {
+                    console.log('[SLAB] Unmaximizing NEW WINDOW:', newWindow.title);
+                    newWindow.unmaximize(Meta.MaximizeFlags.BOTH);
+                }
+            } catch (e) {
+                console.error('[SLAB] Error unfullscreening new window:', e);
+            }
+        }
+
+        // Then handle all other windows
         for (const window of allWindows) {
             try {
-                if (window.is_hidden() && window !== newWindow) continue;
+                // Skip newWindow - already handled above
+                if (newWindow && window.get_stable_sequence() === newWindow.get_stable_sequence()) continue;
+                if (window.is_hidden()) continue;
 
                 if (window.is_fullscreen()) {
                     console.log('[SLAB] Unfullscreening:', window.title);
