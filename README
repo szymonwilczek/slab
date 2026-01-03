@@ -1,0 +1,52 @@
+SLAB
+====
+
+WARNING: READ THIS FIRST
+------------------------
+This software is in VERY EARLY ALPHA stage.
+There are known bugs.
+There are unknown bugs.
+I am aware of them and working on them constantly.
+Use at your own risk. Expect crashes.
+
+WHAT IS SLAB?
+-------------
+SLAB is a high-performance tiling window manager extension for GNOME Shell.
+It adheres to an "Actor-First" philosophy: visual updates happen instantly
+via the compositor, without waiting for the window manager protocol.
+This results in zero-latency, glitch-free tiling.
+
+It implements a simple Master-Stack layout:
+- Master window on the left.
+- Stack of windows on the right.
+
+INSTALLATION
+------------
+Requirements: GNOME Shell 45+ (mainly targeted at Fedora 43 / GNOME 49)
+Dependencies: TypeScript (for building), zip (for packaging)
+
+Download release from GitHub or:
+
+1. Clone the repository:
+   git clone https://github.com/szymonwilczek/slab.git
+
+2. Run the build script:
+   ./build.sh
+
+3. Install:
+   cp -r dist/* ~/.local/share/gnome-shell/extensions/slab@slab.dev/
+
+4. Enable:
+   gnome-extensions enable slab@slab.dev
+
+HOW TO USE
+----------
+- Toggle Tiling: [Super] + [Shift] + [T]
+  (This takes the current MONITOR and tiles it instantly)
+
+Rest of the shortcuts does not interfere with GNOME/user default keybindings.
+
+CONTACT / BUGS
+--------------
+Report issues on GitHub.
+Feedback is welcome, especially regarding race conditions or crashes.
