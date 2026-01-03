@@ -8,66 +8,6 @@ import { getWindowMaximizeState, getTileableWindows } from '../utils/windows.js'
 import { calculateMasterStackLayout } from '../logic/layout.js';
 
 // =============================================================================
-// COMPOSITOR-SYNCHRONIZED TILING (BEFORE_REDRAW)
-// =============================================================================
-/**
- * applyTiling - Apply tiling geometry synchronized with compositor redraw
- */
-export function applyTiling(
-    _state: SlabState,
-    window: Meta.Window,
-    targetX: number,
-    targetY: number,
-    targetW: number,
-    targetH: number
-): void {
-    console.log('[SLAB] applyTiling called for:', window.title, 'target:', targetX, targetY, targetW, targetH);
-
-    // SAFETY: Check if window is still valid
-    if (window.is_hidden()) {
-        console.log('[SLAB] Window is hidden, skipping:', window.title);
-        return;
-    }
-    if (!window.allows_move()) {
-        console.log('[SLAB] Window does not allow move, skipping:', window.title);
-        return;
-    }
-    if (!window.allows_resize()) {
-        console.log('[SLAB] Window does not allow resize, skipping:', window.title);
-        return;
-    }
-
-    // Apply geometry using compositor-synchronized helper
-    scheduleBeforeRedraw(() => {
-        console.log('[SLAB] BEFORE_REDRAW callback executing for:', window.title);
-        try {
-            // Skip if window was destroyed
-            if (window.is_hidden()) {
-                console.log('[SLAB] Window hidden in callback, skipping:', window.title);
-                return;
-            }
-
-            // CRITICAL: Unmaximize if needed, otherwise move_resize is ignored
-            const maxState = getWindowMaximizeState(window);
-            console.log('[SLAB] Window maximize state:', maxState);
-            if (maxState === Meta.MaximizeFlags.HORIZONTAL ||
-                maxState === Meta.MaximizeFlags.VERTICAL ||
-                maxState === Meta.MaximizeFlags.BOTH) {
-                console.log('[SLAB] Unmaximizing window:', window.title);
-                window.unmaximize(Meta.MaximizeFlags.BOTH);
-            }
-
-            // Apply geometry - synchronized with compositor
-            console.log('[SLAB] Calling move_resize_frame:', targetX, targetY, targetW, targetH);
-            window.move_resize_frame(true, targetX, targetY, targetW, targetH);
-            console.log('[SLAB] move_resize_frame completed for:', window.title);
-        } catch (e) {
-            console.error('[SLAB] Error in BEFORE_REDRAW callback:', e);
-        }
-    });
-}
-
-// =============================================================================
 // SNAPSHOT MANAGEMENT
 // =============================================================================
 /**

@@ -29,7 +29,7 @@ import Shell from 'gi://Shell';
 
 import { SlabState } from './types/index.js';
 import { scheduleBeforeRedraw } from './utils/compositor.js';
-import { toggleSlab, applyTiling, applyMasterStackToWorkspace } from './managers/tiling.js';
+import { toggleSlab, applyMasterStackToWorkspace } from './managers/tiling.js';
 
 // =============================================================================
 // EXTENSION LIFECYCLE
