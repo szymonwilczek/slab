@@ -47,6 +47,8 @@ export interface SlabState {
     currentMasterWindowId: number | null;
     /** Map of window stable_sequence -> connected signal handler IDs */
     windowSignals: Map<number, number[]>;
+    /** Pending GLib.timeout_add source ID for new window positioning (for cancellation) */
+    pendingNewWindowTimeoutId: number | null;
 }
 
 // Global declaration for TypeScript

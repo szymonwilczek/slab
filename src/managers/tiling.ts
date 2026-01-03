@@ -408,8 +408,21 @@ export function applyMasterStackToWorkspace(state: SlabState, captureSnapshot: b
                     // This ensures the window is fully visible and initialized before resize.
                     const targetX = x, targetY = y, targetW = w, targetH = h;
                     const targetWindow = window;
-                    GLib.timeout_add(GLib.PRIORITY_DEFAULT, 100, () => {
-                        console.log('[SLAB] Delayed move (100ms) for new window:', targetWindow.title, 'to', targetX, targetY, targetW, targetH);
+                    // Cancel any previous pending timeout
+                    if (state.pendingNewWindowTimeoutId !== null) {
+                        GLib.source_remove(state.pendingNewWindowTimeoutId);
+                    }
+
+                    state.pendingNewWindowTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 100, () => {
+                        state.pendingNewWindowTimeoutId = null; // Clear on execution
+
+                        // Safety check: ensure tiling is still enabled
+                        if (!state.tilingEnabled) {
+                            log('Tiling disabled, skipping delayed move');
+                            return GLib.SOURCE_REMOVE;
+                        }
+
+                        log('Delayed move (100ms) for new window:', targetWindow.title, 'to', targetX, targetY, targetW, targetH);
                         try {
                             targetWindow.move_resize_frame(true, targetX, targetY, targetW, targetH);
                         } catch (e) {
@@ -614,4 +627,11 @@ export function disconnectAllWindowSignals(state: SlabState): void {
 
     state.windowSignals.clear();
     state.currentMasterWindowId = null;
+
+    // CANCEL PENDING TIMEOUT
+    if (state.pendingNewWindowTimeoutId !== null) {
+        GLib.source_remove(state.pendingNewWindowTimeoutId);
+        state.pendingNewWindowTimeoutId = null;
+        log('Cancelled pending new window timeout');
+    }
 }

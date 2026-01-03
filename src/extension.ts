@@ -51,6 +51,7 @@ export default class SlabExtension extends Extension {
             currentMonitor: 0,
             currentMasterWindowId: null,
             windowSignals: new Map(),
+            pendingNewWindowTimeoutId: null,
         };
 
         console.log('[SLAB] Settings loaded:', this._state.settings);
