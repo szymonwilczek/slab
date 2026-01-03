@@ -100,6 +100,49 @@ function captureFloatingSnapshot(windows: Meta.Window[]): FloatingSnapshot {
 }
 
 /**
+ * Capture snapshot for a single window and add it to the state.
+ * For NEW windows, we pass the TARGET position (where it will be restored to), 
+ * not the current position (which might be wrong/uninitialized).
+ */
+function captureSingleWindowSnapshot(
+    state: SlabState,
+    window: Meta.Window,
+    targetX?: number,
+    targetY?: number,
+    targetW?: number,
+    targetH?: number
+): void {
+    const frame = window.get_frame_rect();
+    const maxState = getWindowMaximizeState(window);
+
+    // Calculate a safe stack index (append to end)
+    let maxStackIndex = 0;
+    for (const s of state.floatingSnapshot.values()) {
+        if (s.stackIndex > maxStackIndex) maxStackIndex = s.stackIndex;
+    }
+
+    // Use target position if provided, otherwise use current frame
+    // This fixes the "wrong monitor restore" bug for new windows
+    const x = targetX ?? frame.x;
+    const y = targetY ?? frame.y;
+    const width = targetW ?? frame.width;
+    const height = targetH ?? frame.height;
+
+    state.floatingSnapshot.set(window.get_stable_sequence(), {
+        x,
+        y,
+        width,
+        height,
+        wasFullscreen: window.is_fullscreen(),
+        wasMaximized: maxState === Meta.MaximizeFlags.HORIZONTAL ? 1 :
+            maxState === Meta.MaximizeFlags.VERTICAL ? 2 :
+                maxState === Meta.MaximizeFlags.BOTH ? 3 : 0,
+        stackIndex: maxStackIndex + 1,
+    });
+    console.log('[SLAB] Captured single snapshot for:', window.title, 'at', x, y, width, 'x', height);
+}
+
+/**
  * Restore windows to their floating positions, fullscreen state, and z-order.
  * Called when tiling is DISABLED.
  * 
@@ -216,9 +259,10 @@ export function restoreFloatingPositions(state: SlabState, windows: Meta.Window[
 
 /**
  * Apply Master-Stack layout to all tileable windows.
+ * @param newWindow - If provided, this window is being ADDED to the layout. We snapshot it but preserve others.
  */
-export function applyMasterStackToWorkspace(state: SlabState, captureSnapshot: boolean = false): void {
-    console.log('[SLAB] applyMasterStackToWorkspace called, captureSnapshot:', captureSnapshot);
+export function applyMasterStackToWorkspace(state: SlabState, captureSnapshot: boolean = false, newWindow?: Meta.Window): void {
+    console.log('[SLAB] applyMasterStackToWorkspace called, captureSnapshot:', captureSnapshot, 'newWindow:', newWindow?.title);
 
     if (!state.settings) {
         console.error('[SLAB] No settings available!');
@@ -232,33 +276,30 @@ export function applyMasterStackToWorkspace(state: SlabState, captureSnapshot: b
 
     console.log('[SLAB] Current monitor:', monitor);
 
-    // Get ALL normal windows on workspace AND current monitor (including fullscreen/maximized)
+    // Get ALL normal windows...
     const allWindows = workspace.list_windows().filter((window: Meta.Window) => {
         if (window.window_type !== Meta.WindowType.NORMAL) return false;
         if (window.is_on_all_workspaces()) return false;
-        if (window.get_monitor() !== monitor) return false; // Only current monitor!
+        if (window.get_monitor() !== monitor) return false;
         return true;
     });
 
-    console.log('[SLAB] All normal windows on workspace and monitor:', allWindows.length);
-
-    if (allWindows.length === 0) {
-        console.log('[SLAB] No windows to tile on this monitor!');
-        resumeAnimations();
-        return;
-    }
-
-    // STEP 1: Capture snapshot BEFORE unfullscreening (if requested)
-    if (captureSnapshot) {
-        console.log('[SLAB] Capturing snapshot of', allWindows.length, 'windows');
-        try {
-            state.floatingSnapshot = captureFloatingSnapshot(allWindows);
-            console.log('[SLAB] Snapshot captured successfully');
-        } catch (e) {
-            console.error('[SLAB] Error capturing snapshot:', e);
+    // STEP 1: Snapshot Logic
+    if (newWindow) {
+        // CRITICAL: Prevent cross-monitor disturbance EARLY
+        // If the new window is NOT on this monitor, do not re-tile this monitor
+        if (newWindow.get_monitor() !== monitor) {
+            console.log(`[SLAB] New window is on monitor ${newWindow.get_monitor()}, skipping layout update for monitor ${monitor}`);
             resumeAnimations();
             return;
         }
+        // NOTE: Snapshot for newWindow will be captured AFTER layout calculation
+        // so we use the TARGET position, not the current (wrong) position
+        console.log('[SLAB] New window detected, will capture snapshot after layout calc');
+    } else if (captureSnapshot) {
+        // CASE B: Enabling tiling -> Snapshot EVERYONE
+        console.log('[SLAB] Enabling tiling, capturing full snapshot');
+        state.floatingSnapshot = captureFloatingSnapshot(allWindows);
     }
 
     console.log('[SLAB] Preparing atomic transition');
@@ -304,7 +345,7 @@ export function applyMasterStackToWorkspace(state: SlabState, captureSnapshot: b
         // First: unfullscreen and unmaximize all windows
         for (const window of allWindows) {
             try {
-                if (window.is_hidden()) continue;
+                if (window.is_hidden() && window !== newWindow) continue;
 
                 if (window.is_fullscreen()) {
                     console.log('[SLAB] Unfullscreening:', window.title);
@@ -322,14 +363,23 @@ export function applyMasterStackToWorkspace(state: SlabState, captureSnapshot: b
         }
 
         // Get tileable windows and calculate layout
-        const windows = getTileableWindows(monitor);
+        const windows = getTileableWindows(monitor, newWindow);
         console.log('[SLAB] Tileable windows:', windows.length);
 
+        // REVERSE STACK ORDER for UX
+        // getTileableWindows returns [Master, ...Stack(Bottom->Top)]
+        // We want [Master, Stack(Top), Stack(Bottom)...]
+        // So we reverse the stack portion (index 1 to end)
+        if (windows.length > 2) {
+            const stack = windows.splice(1).reverse();
+            windows.push(...stack);
+        }
+
+        // If no windows (shouldn't happen if we have newWindow), resume
         if (windows.length === 0) {
-            // Restore actor state
-            // Restore actor state
-            // No cleanup needed for skipNextEffect
             console.log('[SLAB] No tileable windows, resuming animations');
+            // Show actors back if we hid them!
+            for (const { actor } of windowActors) actor.show();
             resumeAnimations();
             return;
         }
@@ -346,7 +396,39 @@ export function applyMasterStackToWorkspace(state: SlabState, captureSnapshot: b
         // Apply geometry to all windows
         for (const { window, x, y, w, h } of layout) {
             try {
-                if (window.is_hidden()) continue;
+                // BYPASS HIDDEN CHECK FOR NEW WINDOW
+                // The new window might act hidden because we just hid its actor above!
+                if (window.is_hidden() && window !== newWindow) {
+                    console.log(`[SLAB-DEBUG] Skipping invisible window: ${window.title}`);
+                    continue;
+                }
+
+                // CAPTURE SNAPSHOT FOR NEW WINDOW WITH TARGET POSITION
+                // This fixes Bug 2: Window restores to wrong monitor
+                if (newWindow && window.get_stable_sequence() === newWindow.get_stable_sequence()) {
+                    console.log('[SLAB] Capturing snapshot for new window with target position');
+                    captureSingleWindowSnapshot(state, window, x, y, w, h);
+
+                    // DELAYED MOVE FOR NEW WINDOW (Bug 1 fix)
+                    // New windows might not be fully mapped yet, so move_resize_frame fails.
+                    // We do BOTH immediate (might fail) AND delayed (backup) moves.
+                    const targetX = x, targetY = y, targetW = w, targetH = h;
+                    const targetWindow = window;
+                    scheduleBeforeRedraw(() => {
+                        scheduleBeforeRedraw(() => {
+                            scheduleBeforeRedraw(() => {
+                                console.log('[SLAB] Delayed move (3 frames) for new window:', targetWindow.title, 'to', targetX, targetY, targetW, targetH);
+                                try {
+                                    targetWindow.move_resize_frame(true, targetX, targetY, targetW, targetH);
+                                } catch (e) {
+                                    console.error('[SLAB] Delayed move failed:', e);
+                                }
+                            });
+                        });
+                    });
+                    // Don't skip immediate move - do both!
+                }
+
                 console.log('[SLAB] Moving:', window.title, 'to', x, y, w, h);
                 window.move_resize_frame(true, x, y, w, h);
             } catch (e) {
@@ -354,16 +436,27 @@ export function applyMasterStackToWorkspace(state: SlabState, captureSnapshot: b
             }
         }
 
-        // STEP 4: Resume animations & Restore State
+        // STEP 4: Restore Visibility (Frame 2)
         scheduleBeforeRedraw(() => {
-            console.log('[SLAB] All geometry applied, restoring actor state');
+            console.log('[SLAB] Frame 2: Showing actors (easing still disabled)');
             for (const { actor } of windowActors) {
                 try {
-                    actor.restore_easing_state();
+                    // Show immediately, but keep easing disabled to swallow client-side adjustments
                     actor.show();
+                    (actor as any).remove_all_transitions();
                 } catch (e) { }
             }
-            resumeAnimations();
+
+            // STEP 5: Restore Easing & Resume Animations (Frame 3)
+            scheduleBeforeRedraw(() => {
+                console.log('[SLAB] Frame 3: Restoring easing state');
+                for (const { actor } of windowActors) {
+                    try {
+                        actor.restore_easing_state();
+                    } catch (e) { }
+                }
+                resumeAnimations();
+            });
         });
     });
 }

@@ -74,12 +74,18 @@ export default class SlabExtension extends Extension {
 
         // Listen for new windows to maintain layout
         const display = global.display;
-        const sigId = display.connect('window-created', (_display: Meta.Display, _window: Meta.Window) => {
+        const sigId = display.connect('window-created', (_display: Meta.Display, window: Meta.Window) => {
+            console.log('[SLAB] window-created fired for:', window.title);
+            console.log('[SLAB] Has actor?', !!window.get_compositor_private());
+            console.log('[SLAB] Monitor:', window.get_monitor(), 'Current Monitor:', this._state?.currentMonitor);
+
             if (this._state?.tilingEnabled) {
                 // Schedule layout update synchronized with compositor
                 scheduleBeforeRedraw(() => {
+                    console.log('[SLAB] window-created BEFORE_REDRAW exec for:', window.title);
+                    console.log('[SLAB] Has actor now?', !!window.get_compositor_private());
                     if (this._state?.tilingEnabled) {
-                        applyMasterStackToWorkspace(this._state, false);
+                        applyMasterStackToWorkspace(this._state, false, window);
                     }
                 });
             }

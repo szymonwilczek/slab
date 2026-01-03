@@ -86,8 +86,9 @@ export function _unblockWindowSignals(state: SlabState, window: Meta.Window): vo
  * - Minimized/hidden windows
  * 
  * @param monitor - Monitor index to filter windows for
+ * @param newWindow - Optional new window to force-include (bypass hidden check) and force-master
  */
-export function getTileableWindows(monitor: number): Meta.Window[] {
+export function getTileableWindows(monitor: number, newWindow?: Meta.Window): Meta.Window[] {
     const display = global.display;
     const workspace = display.get_workspace_manager().get_active_workspace();
 
@@ -104,20 +105,31 @@ export function getTileableWindows(monitor: number): Meta.Window[] {
         const window = actor.get_meta_window();
         if (!window) continue;
 
-        // Only tile normal windows
+        // SKIP LOG FILTER: Just verify logic
         if (window.window_type !== Meta.WindowType.NORMAL) continue;
-
-        // Must be on active workspace
         if (window.get_workspace() !== workspace) continue;
 
+        // Debug specific window if needed
+        const isDebug = true;
+        const isNew = newWindow && window.get_stable_sequence() === newWindow.get_stable_sequence();
+
         // Must be on the specified monitor
-        if (window.get_monitor() !== monitor) continue;
+        if (window.get_monitor() !== monitor) {
+            if (isDebug) console.log(`[SLAB-DEBUG] Skipping ${window.title}: Wrong monitor (${window.get_monitor()} vs ${monitor})`);
+            continue;
+        }
 
-        // Skip hidden/minimized
-        if (window.is_hidden()) continue;
+        // Special handling for new window:
+        // 1. Bypass hidden check (it might not be mapped yet)
+        if (!isNew && window.is_hidden()) {
+            if (isDebug) console.log(`[SLAB-DEBUG] Skipping ${window.title}: Hidden`);
+            continue;
+        }
 
-        // Must be movable and resizable
-        if (!window.allows_move() || !window.allows_resize()) continue;
+        if (!window.allows_move() || !window.allows_resize()) {
+            if (isDebug) console.log(`[SLAB-DEBUG] Skipping ${window.title}: No move/resize`);
+            continue;
+        }
 
         // Skip windows on all workspaces (sticky notes, etc)
         if (window.is_on_all_workspaces()) continue;
@@ -125,13 +137,27 @@ export function getTileableWindows(monitor: number): Meta.Window[] {
         tileableWindows.push(window);
     }
 
-    // Move focused window to the FRONT (it will be master on left side)
-    if (focusedWindow) {
-        const focusedIndex = tileableWindows.findIndex(w =>
-            w.get_stable_sequence() === focusedWindow.get_stable_sequence());
-        if (focusedIndex > 0) {
-            const [focused] = tileableWindows.splice(focusedIndex, 1);
-            tileableWindows.unshift(focused);
+    console.log(`[SLAB-DEBUG] Found ${tileableWindows.length} candidates. Focused: ${focusedWindow?.title} New: ${newWindow?.title}`);
+
+    // LOGIC: Determine Master Window
+    // Priority 1: newWindow (if provided) - User just opened it, they want it here.
+    // Priority 2: focusedWindow - Existing behavior.
+
+    let masterWindow = focusedWindow;
+    if (newWindow) {
+        masterWindow = newWindow;
+    }
+
+    if (masterWindow) {
+        const masterIndex = tileableWindows.findIndex(w =>
+            w.get_stable_sequence() === masterWindow.get_stable_sequence());
+
+        if (masterIndex >= 0) {
+            console.log(`[SLAB-DEBUG] Master window ${masterWindow.title} found at index ${masterIndex}, moving to front`);
+            const [master] = tileableWindows.splice(masterIndex, 1);
+            tileableWindows.unshift(master);
+        } else {
+            console.log(`[SLAB-DEBUG] Master window ${masterWindow.title} NOT found in candidates!`);
         }
     }
 
