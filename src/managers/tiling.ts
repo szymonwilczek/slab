@@ -8,6 +8,17 @@ import { getWindowMaximizeState, getTileableWindows } from '../utils/windows.js'
 import { calculateMasterStackLayout } from '../logic/layout.js';
 
 // =============================================================================
+// DEBUG CONFIGURATION
+// =============================================================================
+// Set to false for production to eliminate logging overhead
+const DEBUG = true;
+
+/** Conditional log - only outputs when DEBUG is true */
+function log(...args: any[]): void {
+    if (DEBUG) console.log('[SLAB]', ...args);
+}
+
+// =============================================================================
 // SNAPSHOT MANAGEMENT
 // =============================================================================
 /**
