@@ -459,12 +459,32 @@ export function applyMasterStackToWorkspace(
     const masterRatio = state.settings!.get_double("master-ratio");
     const gap = state.settings!.get_int("window-gap");
 
-    const layout = calculateMasterStackLayout(
+    const layoutResult = calculateMasterStackLayout(
       windows,
       workArea,
       masterRatio,
       gap,
     );
+    const layout = layoutResult.entries;
+
+    // Minimize skipped windows so they're out of the way
+    if (layoutResult.skippedWindows.length > 0) {
+      console.log(
+        `[SLAB] Minimizing ${layoutResult.skippedWindows.length} skipped windows:`,
+        layoutResult.skippedWindows.map((w) => w.title).join(", "),
+      );
+      for (const skippedWindow of layoutResult.skippedWindows) {
+        try {
+          skippedWindow.minimize();
+        } catch (e) {
+          console.error(
+            `[SLAB] Error minimizing window ${skippedWindow.title}:`,
+            e,
+          );
+        }
+      }
+    }
+
     console.log("[SLAB] Calculated layout for", layout.length, "windows");
 
     // Track Master window (first in layout is Master)
@@ -473,7 +493,7 @@ export function applyMasterStackToWorkspace(
       console.log("[SLAB] Current Master:", layout[0].window.title);
     }
 
-    // Connect unmanaging signals to all windows in layout
+    // Connect unmanaging signals to all windows in layout (but NOT skipped ones)
     for (const { window } of layout) {
       connectWindowSignal(state, window);
     }
@@ -552,7 +572,16 @@ export function applyMasterStackToWorkspace(
           // Dont skip immediate move - do both!
         }
 
-        console.log("[SLAB] Moving:", window.title, "to", x, y, w, h);
+        console.log(
+          "[SLAB] Moving:",
+          window.title,
+          `(ID:${window.get_stable_sequence()})`,
+          "to",
+          x,
+          y,
+          w,
+          h,
+        );
         window.move_resize_frame(true, x, y, w, h);
       } catch (e) {
         console.error("[SLAB] Error tiling window:", window.title, e);
@@ -607,9 +636,27 @@ export function toggleSlab(state: SlabState): void {
     // Disconnect all window signals first
     disconnectAllWindowSignals(state);
 
-    const windows = getTileableWindows(state.currentMonitor);
-    console.log("[SLAB] Found", windows.length, "windows to restore");
-    restoreFloatingPositions(state, windows);
+    // Get ALL normal windows on this monitor for proper restore
+    const workspace = global.workspace_manager.get_active_workspace();
+    const allWindows = workspace
+      .list_windows()
+      .filter(
+        (w: Meta.Window) =>
+          w.window_type === Meta.WindowType.NORMAL &&
+          !w.is_on_all_workspaces() &&
+          w.get_monitor() === state.currentMonitor,
+      );
+
+    // Unminimize any windows that were minimized (skipped windows)
+    for (const window of allWindows) {
+      if (window.minimized) {
+        console.log(`[SLAB] Unminimizing skipped window: ${window.title}`);
+        window.unminimize();
+      }
+    }
+
+    console.log("[SLAB] Found", allWindows.length, "windows to restore");
+    restoreFloatingPositions(state, allWindows);
     state.tilingEnabled = false;
     state.floatingSnapshot.clear();
 

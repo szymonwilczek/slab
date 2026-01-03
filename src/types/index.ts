@@ -58,6 +58,7 @@ declare global {
   var global: {
     display: Meta.Display;
     stage: any;
+    workspace_manager: Meta.WorkspaceManager;
     get_window_actors(): WindowActor[];
     compositor?: {
       get_laters(): {

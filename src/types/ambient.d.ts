@@ -121,6 +121,7 @@ declare module "gi://Meta" {
     /**
      * Minimize/unminimize the window
      */
+    readonly minimized: boolean;
     minimize(): void;
     unminimize(): void;
 
