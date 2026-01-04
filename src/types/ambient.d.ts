@@ -164,6 +164,11 @@ declare module "gi://Meta" {
      */
     raise(): void;
 
+    /**
+     * Focus this window
+     */
+    focus(timestamp: number): void;
+
     activate(timestamp: number): void;
 
     /**
@@ -339,6 +344,15 @@ declare module "gi://Gio" {
   const Gio: typeof import("gi://Gio");
   export default Gio;
 
+  export enum SettingsBindFlags {
+    DEFAULT = 0,
+    GET = 1,
+    SET = 2,
+    NO_SENSITIVITY = 4,
+    GET_NO_CHANGES = 8,
+    INVERT_BOOLEAN = 16,
+  }
+
   export class Settings {
     constructor(params: { schema_id: string; path?: string });
 
@@ -351,6 +365,13 @@ declare module "gi://Gio" {
     set_double(key: string, value: number): boolean;
     set_int(key: string, value: number): boolean;
     set_boolean(key: string, value: boolean): boolean;
+
+    bind(
+      key: string,
+      object: object,
+      property: string,
+      flags: SettingsBindFlags,
+    ): void;
 
     connect(signal: string, callback: () => void): number;
     disconnect(id: number): void;
@@ -532,4 +553,156 @@ declare module "gi://St" {
   }
 
   export default St;
+}
+
+// =============================================================================
+// GTK4 - For preferences UI
+// =============================================================================
+
+declare module "gi://Gtk" {
+  namespace Gtk {
+    enum Align {
+      FILL = 0,
+      START = 1,
+      END = 2,
+      CENTER = 3,
+      BASELINE = 4,
+    }
+
+    class Widget {
+      get_root(): Window | null;
+      add_controller(controller: EventController): void;
+    }
+
+    class Window extends Widget {
+      add(child: Widget): void;
+      close(): void;
+      present(): void;
+    }
+
+    class Button extends Widget {
+      constructor(params?: {
+        label?: string;
+        icon_name?: string;
+        valign?: Align;
+        tooltip_text?: string;
+        css_classes?: string[];
+      });
+      connect(signal: string, callback: () => void): number;
+    }
+
+    class ShortcutLabel extends Widget {
+      constructor(params?: {
+        accelerator?: string;
+        disabled_text?: string;
+        valign?: Align;
+      });
+      set_accelerator(accelerator: string): void;
+    }
+
+    class Adjustment {
+      constructor(params?: {
+        value?: number;
+        lower?: number;
+        upper?: number;
+        step_increment?: number;
+        page_increment?: number;
+        page_size?: number;
+      });
+    }
+
+    class EventController {}
+
+    class EventControllerKey extends EventController {
+      connect(
+        signal: "key-pressed",
+        callback: (
+          controller: EventControllerKey,
+          keyval: number,
+          keycode: number,
+          state: number,
+        ) => boolean,
+      ): number;
+    }
+
+    function accelerator_parse(accelerator: string): [number, number];
+    function accelerator_valid(keyval: number, modifiers: number): boolean;
+    function accelerator_name(keyval: number, modifiers: number): string | null;
+    function accelerator_get_default_mod_mask(): number;
+  }
+
+  export default Gtk;
+}
+
+// =============================================================================
+// ADW (Libadwaita) - For modern GNOME preferences UI
+// =============================================================================
+
+declare module "gi://Adw" {
+  import Gtk from "gi://Gtk";
+
+  namespace Adw {
+    class PreferencesWindow extends Gtk.Window {
+      add(page: PreferencesPage): void;
+    }
+
+    class PreferencesPage extends Gtk.Widget {
+      constructor(params?: { title?: string; icon_name?: string });
+      add(group: PreferencesGroup): void;
+    }
+
+    class PreferencesGroup extends Gtk.Widget {
+      constructor(params?: { title?: string; description?: string });
+      add(row: PreferencesRow | ActionRow | SpinRow): void;
+    }
+
+    class PreferencesRow extends Gtk.Widget {
+      constructor(params?: { title?: string });
+    }
+
+    class ActionRow extends PreferencesRow {
+      constructor(params?: { title?: string; subtitle?: string });
+      add_suffix(widget: Gtk.Widget): void;
+      add_prefix(widget: Gtk.Widget): void;
+    }
+
+    class SpinRow extends ActionRow {
+      constructor(params?: {
+        title?: string;
+        subtitle?: string;
+        adjustment?: Gtk.Adjustment;
+        digits?: number;
+      });
+      value: number;
+    }
+
+    class MessageDialog extends Gtk.Window {
+      constructor(params?: {
+        transient_for?: Gtk.Window;
+        modal?: boolean;
+        heading?: string;
+        body?: string;
+      });
+      add_response(id: string, label: string): void;
+      set_response_appearance(id: string, appearance: number): void;
+    }
+  }
+
+  export default Adw;
+}
+
+// =============================================================================
+// Extension Preferences Module
+// =============================================================================
+
+declare module "resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js" {
+  import Adw from "gi://Adw";
+  import Gio from "gi://Gio";
+
+  export class ExtensionPreferences {
+    getSettings(): Gio.Settings;
+    fillPreferencesWindow(window: Adw.PreferencesWindow): void;
+  }
+
+  export function gettext(str: string): string;
 }

@@ -1,6 +1,6 @@
 - all monitors (if are more than one) should have their own states of tiling - so every monitor could be tiled independently of the other
 
-- settings for gnome environment to customize the extension
+- ~~settings for gnome environment to customize the extension~~
 
 - ~~drag-n-drop feature~~
 

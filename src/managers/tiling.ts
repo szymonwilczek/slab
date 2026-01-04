@@ -891,6 +891,19 @@ export function setCurrentTiledWindows(windows: Meta.Window[]): void {
 }
 
 /**
+ * Get the current layout positions.
+ * Used by keyboard manager for spatial navigation.
+ */
+export function getCurrentLayoutPositions(): Array<{
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}> {
+  return currentLayoutPositions;
+}
+
+/**
  * Update the stored layout positions.
  * Called after layout calculation.
  */

@@ -1,5 +1,5 @@
 /**
- * SLAB - High-Performance Actor-First Tiling Extension for GNOME Shell 45+
+ * SLAB - High-Performance Actor-First Tiling Extension for GNOME Shell
  *
  * ARCHITECTURE OVERVIEW:
  * ----------------------
@@ -24,12 +24,18 @@
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
 import { Extension } from "resource:///org/gnome/shell/extensions/extension.js";
 
-import Meta from "gi://Meta";
 import Shell from "gi://Shell";
 
 import { SlabState } from "./types/index.js";
 import { scheduleBeforeRedraw } from "./utils/compositor.js";
 import { toggleSlab, applyMasterStackToWorkspace } from "./managers/tiling.js";
+import {
+  initKeyboardManager,
+  cleanupKeyboardManager,
+  focusDirection,
+  swapDirection,
+  adjustMasterRatio,
+} from "./managers/keyboard.js";
 
 // =============================================================================
 // EXTENSION LIFECYCLE
@@ -57,7 +63,7 @@ export default class SlabExtension extends Extension {
 
     console.log("[SLAB] Settings loaded:", this._state.settings);
 
-    // Register keybinding
+    // Register toggle-tiling keybinding
     try {
       Main.wm.addKeybinding(
         "toggle-tiling",
@@ -71,10 +77,86 @@ export default class SlabExtension extends Extension {
           }
         },
       );
-      console.log("[SLAB] Keybinding registered successfully");
+      console.log("[SLAB] Toggle keybinding registered");
     } catch (e) {
-      console.error("[SLAB] Failed to register keybinding:", e);
+      console.error("[SLAB] Failed to register toggle keybinding:", e);
     }
+
+    initKeyboardManager(this._state);
+
+    // focus navigation keybindings
+    const focusBindings = [
+      "focus-left",
+      "focus-right",
+      "focus-up",
+      "focus-down",
+    ];
+    for (const binding of focusBindings) {
+      try {
+        Main.wm.addKeybinding(
+          binding,
+          this._state.settings!,
+          0,
+          Shell.ActionMode.NORMAL,
+          () => {
+            const direction = binding.replace("focus-", "") as
+              | "left"
+              | "right"
+              | "up"
+              | "down";
+            focusDirection(direction);
+          },
+        );
+      } catch (e) {
+        console.error(`[SLAB] Failed to register ${binding}:`, e);
+      }
+    }
+
+    // swap keybindings
+    const swapBindings = ["swap-left", "swap-right", "swap-up", "swap-down"];
+    for (const binding of swapBindings) {
+      try {
+        Main.wm.addKeybinding(
+          binding,
+          this._state.settings!,
+          0,
+          Shell.ActionMode.NORMAL,
+          () => {
+            const direction = binding.replace("swap-", "") as
+              | "left"
+              | "right"
+              | "up"
+              | "down";
+            swapDirection(direction);
+          },
+        );
+      } catch (e) {
+        console.error(`[SLAB] Failed to register ${binding}:`, e);
+      }
+    }
+
+    // master ratio keybindings
+    const settings = this._state.settings!;
+    try {
+      Main.wm.addKeybinding(
+        "increase-master-ratio",
+        settings,
+        0,
+        Shell.ActionMode.NORMAL,
+        () => adjustMasterRatio(true, settings),
+      );
+      Main.wm.addKeybinding(
+        "decrease-master-ratio",
+        settings,
+        0,
+        Shell.ActionMode.NORMAL,
+        () => adjustMasterRatio(false, settings),
+      );
+    } catch (e) {
+      console.error("[SLAB] Failed to register master ratio keybindings:", e);
+    }
+
+    console.log("[SLAB] All keybindings registered successfully");
 
     // Listen for new windows to maintain layout
     const display = global.display;
@@ -129,7 +211,21 @@ export default class SlabExtension extends Extension {
         display.disconnect(id);
       }
 
+      // Remove all keybindings
       Main.wm.removeKeybinding("toggle-tiling");
+      Main.wm.removeKeybinding("focus-left");
+      Main.wm.removeKeybinding("focus-right");
+      Main.wm.removeKeybinding("focus-up");
+      Main.wm.removeKeybinding("focus-down");
+      Main.wm.removeKeybinding("swap-left");
+      Main.wm.removeKeybinding("swap-right");
+      Main.wm.removeKeybinding("swap-up");
+      Main.wm.removeKeybinding("swap-down");
+      Main.wm.removeKeybinding("increase-master-ratio");
+      Main.wm.removeKeybinding("decrease-master-ratio");
+
+      // Clean up keyboard manager
+      cleanupKeyboardManager();
 
       // Clear state
       this._state = null;
