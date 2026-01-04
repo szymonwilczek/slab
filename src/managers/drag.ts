@@ -244,6 +244,7 @@ function handleGrabEnd(state: SlabState, window: Meta.Window): void {
 
   const currentZone = overlay.getCurrentZone();
   const originalIndex = state.dragState.originalIndex;
+  const draggedWindow = state.dragState.draggedWindow;
 
   // Hide overlay
   overlay.hide();
@@ -258,7 +259,22 @@ function handleGrabEnd(state: SlabState, window: Meta.Window): void {
       swapWindowsCallback(originalIndex, currentZone.index);
     }
   } else {
-    console.log("[SLAB-DRAG] Drag ended without swap");
+    // No swap - snap the window back to its original layout position
+    console.log("[SLAB-DRAG] Drag ended without swap - restoring position");
+
+    const originalZone = currentZones.find((z) => z.index === originalIndex);
+    if (originalZone) {
+      console.log(
+        `[SLAB-DRAG] Restoring to: ${originalZone.x},${originalZone.y} ${originalZone.width}x${originalZone.height}`,
+      );
+      draggedWindow.move_resize_frame(
+        true,
+        originalZone.x,
+        originalZone.y,
+        originalZone.width,
+        originalZone.height,
+      );
+    }
   }
 
   // Clean up drag state
