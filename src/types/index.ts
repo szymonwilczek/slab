@@ -60,6 +60,8 @@ export interface SlabState {
   pendingNewWindowTimeoutId: number | null;
   /** Current drag state (null if not dragging) */
   dragState: DragState | null;
+  /** Set of window stable_sequence IDs that are "popped out" (floating above layout) */
+  poppedOutWindows: Set<number>;
 }
 
 // Global declaration for TypeScript

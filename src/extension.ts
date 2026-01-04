@@ -28,7 +28,12 @@ import Shell from "gi://Shell";
 
 import { SlabState } from "./types/index.js";
 import { scheduleBeforeRedraw } from "./utils/compositor.js";
-import { toggleSlab, applyMasterStackToWorkspace } from "./managers/tiling.js";
+import {
+  toggleSlab,
+  applyMasterStackToWorkspace,
+  popOutWindow,
+  popInWindow,
+} from "./managers/tiling.js";
 import {
   initKeyboardManager,
   cleanupKeyboardManager,
@@ -59,6 +64,7 @@ export default class SlabExtension extends Extension {
       windowSignals: new Map(),
       pendingNewWindowTimeoutId: null,
       dragState: null,
+      poppedOutWindows: new Set(),
     };
 
     console.log("[SLAB] Settings loaded:", this._state.settings);
@@ -156,6 +162,27 @@ export default class SlabExtension extends Extension {
       console.error("[SLAB] Failed to register master ratio keybindings:", e);
     }
 
+    // pop-out / pop-in keybindings
+    const stateRef = this._state;
+    try {
+      Main.wm.addKeybinding(
+        "pop-out-window",
+        settings,
+        0,
+        Shell.ActionMode.NORMAL,
+        () => popOutWindow(stateRef),
+      );
+      Main.wm.addKeybinding(
+        "pop-in-window",
+        settings,
+        0,
+        Shell.ActionMode.NORMAL,
+        () => popInWindow(stateRef),
+      );
+    } catch (e) {
+      console.error("[SLAB] Failed to register pop-out/pop-in keybindings:", e);
+    }
+
     console.log("[SLAB] All keybindings registered successfully");
 
     // Listen for new windows to maintain layout
@@ -223,6 +250,8 @@ export default class SlabExtension extends Extension {
       Main.wm.removeKeybinding("swap-down");
       Main.wm.removeKeybinding("increase-master-ratio");
       Main.wm.removeKeybinding("decrease-master-ratio");
+      Main.wm.removeKeybinding("pop-out-window");
+      Main.wm.removeKeybinding("pop-in-window");
 
       // Clean up keyboard manager
       cleanupKeyboardManager();

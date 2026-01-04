@@ -90,11 +90,13 @@ export function _unblockWindowSignals(
  * @param monitor - Monitor index to filter windows for
  * @param newWindow - Optional new window to force-include and force-master
  * @param currentMasterId - Optional current Master's stable_sequence to preserve
+ * @param poppedOutWindows - Optional Set of window IDs that are "popped out" and should be excluded
  */
 export function getTileableWindows(
   monitor: number,
   newWindow?: Meta.Window,
   currentMasterId?: number | null,
+  poppedOutWindows?: Set<number>,
 ): Meta.Window[] {
   const display = global.display;
   const workspace = display.get_workspace_manager().get_active_workspace();
@@ -115,6 +117,14 @@ export function getTileableWindows(
     // SKIP LOG FILTER: Just verify logic
     if (window.window_type !== Meta.WindowType.NORMAL) continue;
     if (window.get_workspace() !== workspace) continue;
+
+    // Skip popped-out windows
+    if (poppedOutWindows?.has(window.get_stable_sequence())) {
+      console.log(
+        `[SLAB-DEBUG] Skipping ${window.title}: Popped out (floating)`,
+      );
+      continue;
+    }
 
     // Debug specific window if needed
     const isDebug = true;

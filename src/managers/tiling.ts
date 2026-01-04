@@ -256,7 +256,7 @@ export function restoreFloatingPositions(
             if (!window.is_hidden()) {
               window.raise();
             }
-          } catch (e) {}
+          } catch (e) { }
         }
       }
     }
@@ -268,7 +268,7 @@ export function restoreFloatingPositions(
         try {
           actor.restore_easing_state();
           actor.show();
-        } catch (e) {}
+        } catch (e) { }
       }
     });
   });
@@ -426,6 +426,7 @@ export function applyMasterStackToWorkspace(
       monitor,
       newWindow,
       state.currentMasterWindowId,
+      state.poppedOutWindows,
     );
     console.log("[SLAB] Tileable windows:", windows.length);
 
@@ -631,7 +632,7 @@ export function applyMasterStackToWorkspace(
           // Show immediately, but keep easing disabled to swallow client-side adjustments
           actor.show();
           (actor as any).remove_all_transitions();
-        } catch (e) {}
+        } catch (e) { }
       }
     });
 
@@ -641,7 +642,7 @@ export function applyMasterStackToWorkspace(
       for (const { actor } of windowActors) {
         try {
           actor.restore_easing_state();
-        } catch (e) {}
+        } catch (e) { }
       }
       resumeAnimations();
     });
@@ -1005,4 +1006,98 @@ export function swapWindowPositions(
       resumeAnimations();
     });
   });
+}
+
+// =============================================================================
+// POP-OUT / POP-IN WINDOW FUNCTIONS
+// =============================================================================
+
+/**
+ * Pop a window OUT of the tiled layout.
+ * The window floats centered on screen with its original (snapshot) size.
+ * The layout recalculates as if the window was closed.
+ */
+export function popOutWindow(state: SlabState): void {
+  if (!state.tilingEnabled) {
+    console.log("[SLAB] Cannot pop-out: tiling is disabled");
+    return;
+  }
+
+  const focusedWindow = global.display.get_focus_window();
+  if (!focusedWindow) {
+    console.log("[SLAB] Cannot pop-out: no focused window");
+    return;
+  }
+
+  const windowId = focusedWindow.get_stable_sequence();
+
+  // Check if already popped out
+  if (state.poppedOutWindows.has(windowId)) {
+    console.log("[SLAB] Window already popped out:", focusedWindow.title);
+    return;
+  }
+
+  // Get the snapshot to determine the floating size
+  const snapshot = state.floatingSnapshot.get(windowId);
+  if (!snapshot) {
+    console.log("[SLAB] No snapshot for window, using current size");
+  }
+
+  // Calculate centered position
+  const monitor = global.display.get_current_monitor();
+  const workArea = global.display.get_monitor_geometry(monitor);
+
+  const width = snapshot?.width ?? focusedWindow.get_frame_rect().width;
+  const height = snapshot?.height ?? focusedWindow.get_frame_rect().height;
+  const x = workArea.x + Math.floor((workArea.width - width) / 2);
+  const y = workArea.y + Math.floor((workArea.height - height) / 2);
+
+  console.log(
+    `[SLAB] Popping out window: ${focusedWindow.title} -> centered at ${x},${y} ${width}x${height}`,
+  );
+
+  // Mark as popped out BEFORE recalculating layout
+  state.poppedOutWindows.add(windowId);
+
+  // Move window to centered floating position
+  focusedWindow.move_resize_frame(false, x, y, width, height);
+
+  // Raise window to top
+  focusedWindow.raise();
+
+  // Recalculate layout without this window
+  applyMasterStackToWorkspace(state, false);
+}
+
+/**
+ * Pop a window back IN to the tiled layout.
+ * The window becomes the new master and the layout recalculates.
+ */
+export function popInWindow(state: SlabState): void {
+  if (!state.tilingEnabled) {
+    console.log("[SLAB] Cannot pop-in: tiling is disabled");
+    return;
+  }
+
+  const focusedWindow = global.display.get_focus_window();
+  if (!focusedWindow) {
+    console.log("[SLAB] Cannot pop-in: no focused window");
+    return;
+  }
+
+  const windowId = focusedWindow.get_stable_sequence();
+
+  // Check if it's actually popped out
+  if (!state.poppedOutWindows.has(windowId)) {
+    console.log("[SLAB] Window is not popped out:", focusedWindow.title);
+    return;
+  }
+
+  console.log(`[SLAB] Popping in window: ${focusedWindow.title}`);
+
+  // Remove from popped out set
+  state.poppedOutWindows.delete(windowId);
+
+  // Recalculate layout with this window as the new master
+  applyMasterStackToWorkspace(state, false, focusedWindow);
 }

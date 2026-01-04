@@ -141,5 +141,28 @@
       </description>
     </key>
     
+    <!-- ============================================================ -->
+    <!-- POP-OUT / POP-IN WINDOW -->
+    <!-- ============================================================ -->
+    
+    <key name="pop-out-window" type="as">
+      <default><![CDATA[['<Super>z']]]></default>
+      <summary>Pop Out Window</summary>
+      <description>
+        Remove the focused window from the tiled layout and float it centered on screen 
+        with its original (pre-tiling) dimensions. The layout recalculates as if the 
+        window was closed. Use Pop In to re-add it to the layout.
+      </description>
+    </key>
+    
+    <key name="pop-in-window" type="as">
+      <default><![CDATA[['<Super><Shift>z']]]></default>
+      <summary>Pop In Window</summary>
+      <description>
+        Add a floating (popped out) window back into the tiled layout. The window 
+        becomes the new master and the layout recalculates to accommodate it.
+      </description>
+    </key>
+    
   </schema>
 </schemalist>
