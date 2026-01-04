@@ -217,10 +217,33 @@ declare module "gi://Meta" {
     get_monitor_scale(monitor: number): number;
 
     connect(
-      signal: "window-created" | "grab-op-begin" | "grab-op-end",
+      signal: "window-created",
       callback: (display: Display, window: Window) => void,
     ): number;
+    connect(
+      signal: "grab-op-begin" | "grab-op-end",
+      callback: (display: Display, window: Window, grabOp: GrabOp) => void,
+    ): number;
     disconnect(id: number): void;
+  }
+
+  /**
+   * Grab operation type - what kind of grab is happening
+   * Values from GNOME Mutter source
+   */
+  export enum GrabOp {
+    NONE = 0,
+    MOVING = 1,
+    KEYBOARD_MOVING = 257,
+    MOVING_UNCONSTRAINED = 1025, // Meta+drag
+    RESIZING_NW = 2,
+    RESIZING_N = 3,
+    RESIZING_NE = 4,
+    RESIZING_E = 5,
+    RESIZING_SE = 6,
+    RESIZING_S = 7,
+    RESIZING_SW = 8,
+    RESIZING_W = 9,
   }
 
   /**
@@ -304,32 +327,11 @@ declare module "gi://Clutter" {
     set_easing_duration(msecs: number): void;
     set_easing_mode(mode: number): void;
     remove_all_transitions(): void;
-  }
-}
 
-declare module "gi://St" {
-  const St: typeof import("gi://St");
-  export default St;
-
-  /**
-   * St.Settings - Shell Toolkit settings, includes animation control
-   */
-  export class Settings {
-    /**
-     * Get the singleton Settings instance
-     */
-    static get(): Settings;
-
-    /**
-     * Inhibit animations - to disable ALL animations temporarily
-     * Call uninhibit_animations() when done
-     */
-    inhibit_animations(): void;
-
-    /**
-     * Uninhibit animations - re-enable animations after inhibit
-     */
-    uninhibit_animations(): void;
+    // Child management
+    add_child(child: Actor): void;
+    remove_child(child: Actor): void;
+    destroy(): void;
   }
 }
 
@@ -441,7 +443,93 @@ declare module "resource:///org/gnome/shell/ui/main.js" {
   export const layoutManager: {
     monitors: Array<{ x: number; y: number; width: number; height: number }>;
     primaryIndex: number;
+    /** The main UI group - add overlays here */
+    uiGroup: Clutter.Actor;
+    addChrome(actor: Clutter.Actor): void;
+    removeChrome(actor: Clutter.Actor): void;
   };
 
   export function notify(title: string, body: string): void;
+}
+
+// St (Shell Toolkit) - GNOME Shell's widget toolkit
+declare module "gi://St" {
+  import type Clutter from "gi://Clutter";
+
+  namespace St {
+    /**
+     * St.Settings - Shell Toolkit settings, includes animation control
+     */
+    class Settings {
+      static get(): Settings;
+      inhibit_animations(): void;
+      uninhibit_animations(): void;
+    }
+
+    /**
+     * St.Widget - Base class for Shell Toolkit widgets
+     */
+    class Widget extends Clutter.Actor {
+      constructor(params?: {
+        style_class?: string;
+        style?: string;
+        x?: number;
+        y?: number;
+        width?: number;
+        height?: number;
+        reactive?: boolean;
+        visible?: boolean;
+        opacity?: number;
+      });
+
+      style_class: string;
+      style: string;
+
+      add_style_class_name(className: string): void;
+      remove_style_class_name(className: string): void;
+      has_style_class_name(className: string): boolean;
+
+      destroy(): void;
+    }
+
+    /**
+     * St.BoxLayout - Container with horizontal or vertical layout
+     */
+    class BoxLayout extends Widget {
+      constructor(params?: {
+        style_class?: string;
+        vertical?: boolean;
+        x_expand?: boolean;
+        y_expand?: boolean;
+      });
+
+      vertical: boolean;
+    }
+
+    /**
+     * St.Bin - Single-child container widget
+     */
+    class Bin extends Widget {
+      constructor(params?: {
+        style_class?: string;
+        child?: Clutter.Actor;
+        x_fill?: boolean;
+        y_fill?: boolean;
+      });
+
+      set_child(child: Clutter.Actor | null): void;
+      get_child(): Clutter.Actor | null;
+    }
+
+    /**
+     * St.Label - Text label widget
+     */
+    class Label extends Widget {
+      constructor(params?: { text?: string; style_class?: string });
+
+      text: string;
+    }
+  }
+
+  export default St;
 }

@@ -25,6 +25,18 @@ export interface WindowSnapshot {
 
 export type FloatingSnapshot = Map<number, WindowSnapshot>;
 
+/**
+ * State for tracking active drag-and-drop operation
+ */
+export interface DragState {
+  /** Window being dragged */
+  draggedWindow: Meta.Window;
+  /** Original index in the tiled windows array */
+  originalIndex: number;
+  /** Signal IDs connected during drag */
+  signalIds: number[];
+}
+
 export interface SlabState {
   /** Is tiling currently active? */
   tilingEnabled: boolean;
@@ -46,6 +58,8 @@ export interface SlabState {
   windowSignals: Map<number, number[]>;
   /** Pending GLib.timeout_add source ID for new window positioning (for cancellation) */
   pendingNewWindowTimeoutId: number | null;
+  /** Current drag state (null if not dragging) */
+  dragState: DragState | null;
 }
 
 // Global declaration for TypeScript

@@ -14,6 +14,7 @@ import {
   getTileableWindows,
 } from "../utils/windows.js";
 import { calculateMasterStackLayout } from "../logic/layout.js";
+import { initDragManager, cleanupDragManager } from "./drag.js";
 
 // =============================================================================
 // DEBUG CONFIGURATION
@@ -487,6 +488,19 @@ export function applyMasterStackToWorkspace(
 
     console.log("[SLAB] Calculated layout for", layout.length, "windows");
 
+    // Update current tiled windows order for drag manager
+    const tiledWindowsOrder = layout.map((entry) => entry.window);
+    setCurrentTiledWindows(tiledWindowsOrder);
+
+    // Update layout positions for drag swap optimization
+    const layoutPositions = layout.map((entry) => ({
+      x: entry.x,
+      y: entry.y,
+      width: entry.w,
+      height: entry.h,
+    }));
+    setCurrentLayoutPositions(layoutPositions);
+
     // Track Master window (first in layout is Master)
     if (layout.length > 0) {
       state.currentMasterWindowId = layout[0].window.get_stable_sequence();
@@ -654,7 +668,10 @@ export function toggleSlab(state: SlabState): void {
     // === DISABLE TILING ===
     console.log("[SLAB] Disabling tiling on monitor:", state.currentMonitor);
 
-    // Disconnect all window signals first
+    // Clean up drag manager first
+    cleanupDragManager(state);
+
+    // Disconnect all window signals
     disconnectAllWindowSignals(state);
 
     // Get ALL normal windows on this monitor for proper restore
@@ -693,7 +710,16 @@ export function toggleSlab(state: SlabState): void {
     state.currentMonitor = global.display.get_current_monitor();
     console.log("[SLAB] Enabling tiling on monitor:", state.currentMonitor);
     state.tilingEnabled = true;
+    state.dragState = null; // Initialize drag state
     applyMasterStackToWorkspace(state, true);
+
+    // Initialize drag manager (after layout is applied)
+    initDragManager(
+      state,
+      getCurrentTiledWindows,
+      (indexA: number, indexB: number) =>
+        swapWindowPositions(state, indexA, indexB),
+    );
   }
 
   console.log("[SLAB] === toggleSlab completed ===");
@@ -831,4 +857,139 @@ export function disconnectAllWindowSignals(state: SlabState): void {
     state.pendingNewWindowTimeoutId = null;
     log("Cancelled pending new window timeout");
   }
+}
+
+// =============================================================================
+// DRAG-AND-DROP HELPER FUNCTIONS
+// =============================================================================
+
+/** Current tracked order of tiled windows (updated on each layout) */
+let currentTiledWindows: Meta.Window[] = [];
+
+/** Layout positions for each window index (x, y, width, height) */
+let currentLayoutPositions: Array<{
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}> = [];
+
+/**
+ * Get the current ordered list of tiled windows.
+ * Used by drag manager to determine swap positions.
+ */
+export function getCurrentTiledWindows(): Meta.Window[] {
+  return currentTiledWindows;
+}
+
+/**
+ * Update the stored tiled windows order.
+ * Called after layout calculation.
+ */
+export function setCurrentTiledWindows(windows: Meta.Window[]): void {
+  currentTiledWindows = windows;
+}
+
+/**
+ * Update the stored layout positions.
+ * Called after layout calculation.
+ */
+export function setCurrentLayoutPositions(
+  positions: Array<{ x: number; y: number; width: number; height: number }>,
+): void {
+  currentLayoutPositions = positions;
+}
+
+/**
+ * Swap two windows in the tiled layout.
+ * Called by drag manager on drop.
+ * OPTIMIZED: Directly swaps positions of only 2 windows without full re-tile.
+ */
+export function swapWindowPositions(
+  state: SlabState,
+  indexA: number,
+  indexB: number,
+): void {
+  console.log(`[SLAB] Swapping window positions: ${indexA} <-> ${indexB}`);
+
+  if (indexA === indexB) return;
+  if (indexA < 0 || indexB < 0) return;
+  if (
+    indexA >= currentTiledWindows.length ||
+    indexB >= currentTiledWindows.length
+  )
+    return;
+  if (
+    indexA >= currentLayoutPositions.length ||
+    indexB >= currentLayoutPositions.length
+  ) {
+    console.error(
+      "[SLAB] Layout positions not available, falling back to full re-tile",
+    );
+    suspendAnimations();
+    applyMasterStackToWorkspace(state, false);
+    return;
+  }
+
+  const windowA = currentTiledWindows[indexA];
+  const windowB = currentTiledWindows[indexB];
+
+  // LAYOUT positions, not current window positions (which may be dragged)
+  const posA = currentLayoutPositions[indexA];
+  const posB = currentLayoutPositions[indexB];
+
+  console.log(
+    `[SLAB] Layout pos A (index ${indexA}): ${posA.x},${posA.y} ${posA.width}x${posA.height}`,
+  );
+  console.log(
+    `[SLAB] Layout pos B (index ${indexB}): ${posB.x},${posB.y} ${posB.width}x${posB.height}`,
+  );
+
+  // Swap windows in the array (update internal state)
+  currentTiledWindows[indexA] = windowB;
+  currentTiledWindows[indexB] = windowA;
+
+  // Positions stay the same - we just move windows to swapped positions
+
+  // Update master ID if affected
+  if (indexA === 0 || indexB === 0) {
+    state.currentMasterWindowId = currentTiledWindows[0].get_stable_sequence();
+    console.log("[SLAB] New Master after swap:", currentTiledWindows[0].title);
+  }
+
+  // Directly move only these 2 windows to each other's layout positions
+  suspendAnimations();
+
+  scheduleBeforeRedraw(() => {
+    // Suppress animations for both windows
+    const actorA = windowA.get_compositor_private();
+    const actorB = windowB.get_compositor_private();
+
+    if (actorA) {
+      actorA.save_easing_state();
+      actorA.set_easing_duration(0);
+      (actorA as any).remove_all_transitions();
+    }
+    if (actorB) {
+      actorB.save_easing_state();
+      actorB.set_easing_duration(0);
+      (actorB as any).remove_all_transitions();
+    }
+
+    // Move window A to layout position B (where B WAS)
+    windowA.move_resize_frame(true, posB.x, posB.y, posB.width, posB.height);
+    // Move window B to layout position A (where A WAS)
+    windowB.move_resize_frame(true, posA.x, posA.y, posA.width, posA.height);
+
+    console.log(
+      `[SLAB] Swapped: ${windowA.title} -> ${posB.x},${posB.y}, ${windowB.title} -> ${posA.x},${posA.y}`,
+    );
+
+    // Restore easing state after a short delay
+    scheduleAfterFrames(1, () => {
+      if (actorA) actorA.restore_easing_state();
+      if (actorB) actorB.restore_easing_state();
+      resumeAnimations();
+    });
+  });
 }

@@ -52,6 +52,7 @@ export default class SlabExtension extends Extension {
       currentMasterWindowId: null,
       windowSignals: new Map(),
       pendingNewWindowTimeoutId: null,
+      dragState: null,
     };
 
     console.log("[SLAB] Settings loaded:", this._state.settings);
