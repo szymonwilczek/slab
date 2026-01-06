@@ -25,6 +25,7 @@ import * as Main from "resource:///org/gnome/shell/ui/main.js";
 import { Extension } from "resource:///org/gnome/shell/extensions/extension.js";
 
 import Shell from "gi://Shell";
+import Meta from "gi://Meta";
 
 import { SlabState } from "./types/index.js";
 import { scheduleBeforeRedraw } from "./utils/compositor.js";
@@ -231,30 +232,26 @@ export default class SlabExtension extends Extension {
     const sigId = display.connect(
       "window-created",
       (_display: Meta.Display, window: Meta.Window) => {
-        console.log("[SLAB] window-created fired for:", window.title);
-        console.log("[SLAB] Has actor?", !!window.get_compositor_private());
-        console.log(
-          "[SLAB] Monitor:",
-          window.get_monitor(),
-          "Current Monitor:",
-          this._state?.currentMonitor,
-        );
+        try {
+          // Ignore non-normal windows (tooltips, popups, menus, ...)
+          if (window.window_type !== Meta.WindowType.NORMAL) {
+            return;
+          }
 
-        if (this._state?.tilingEnabled) {
-          // Schedule layout update synchronized with compositor
-          scheduleBeforeRedraw(() => {
-            console.log(
-              "[SLAB] window-created BEFORE_REDRAW exec for:",
-              window.title,
-            );
-            console.log(
-              "[SLAB] Has actor now?",
-              !!window.get_compositor_private(),
-            );
-            if (this._state?.tilingEnabled) {
-              applyMasterStackToWorkspace(this._state, false, window);
-            }
-          });
+          if (this._state?.tilingEnabled) {
+            scheduleBeforeRedraw(() => {
+              // Ignore transient windows (dialogs with parent windows)
+              if (window.get_transient_for()) {
+                return;
+              }
+
+              if (this._state?.tilingEnabled) {
+                applyMasterStackToWorkspace(this._state, false, window);
+              }
+            });
+          }
+        } catch (e) {
+          console.error("[SLAB] window-created error:", e);
         }
       },
     );

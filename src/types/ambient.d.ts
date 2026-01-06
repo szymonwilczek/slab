@@ -98,6 +98,7 @@ declare module "gi://Meta" {
     get_compositor_private(): Clutter.Actor | null;
     get_workspace(): Workspace | null;
     get_monitor(): number;
+    get_transient_for(): Window | null;
 
     /**
      * get_frame_rect() - Returns the VISIBLE window geometry
