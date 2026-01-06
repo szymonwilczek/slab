@@ -296,6 +296,16 @@ declare module "gi://Clutter" {
   const Clutter: typeof import("gi://Clutter");
   export default Clutter;
 
+  export const BUTTON_PRESS: number;
+  export const BUTTON_RELEASE: number;
+
+  export const BUTTON_PRIMARY: number;
+  export const BUTTON_MIDDLE: number;
+  export const BUTTON_SECONDARY: number;
+
+  export const EVENT_STOP: boolean;
+  export const EVENT_PROPAGATE: boolean;
+
   /**
    * Clutter.Actor - the VISUAL representation of a window
    * This is what the compositor draws. Manipulating this = instant feedback.
@@ -337,6 +347,20 @@ declare module "gi://Clutter" {
     add_child(child: Actor): void;
     remove_child(child: Actor): void;
     destroy(): void;
+  }
+
+  // Button constants
+  export const BUTTON_PRIMARY: number;
+  export const BUTTON_SECONDARY: number;
+  export const BUTTON_MIDDLE: number;
+
+  // Event propagation constants
+  export const EVENT_PROPAGATE: boolean;
+  export const EVENT_STOP: boolean;
+
+  // Event type for button presses
+  export interface ButtonEvent {
+    get_button(): number;
   }
 }
 
@@ -381,6 +405,26 @@ declare module "gi://Gio" {
      */
     static sync(): void;
   }
+
+  // GIcon interface
+  export interface GIcon {}
+
+  // Icon namespace with factory methods
+  export namespace Icon {
+    function new_for_string(str: string): GIcon;
+  }
+
+  // ThemedIcon - creates GIcon from icon name
+  export class ThemedIcon implements GIcon {
+    constructor(params: { name: string });
+    static new(iconName: string): GIcon;
+  }
+
+  // Launch default application for URI
+  export function app_info_launch_default_for_uri(
+    uri: string,
+    context: null,
+  ): boolean;
 }
 
 declare module "gi://GLib" {
@@ -403,6 +447,14 @@ declare module "gi://GLib" {
 declare module "gi://GObject" {
   const GObject: typeof import("gi://GObject");
   export default GObject;
+
+  export function registerClass<T extends new (...args: any[]) => any>(
+    klass: T,
+  ): T;
+  export function registerClass<T extends new (...args: any[]) => any>(
+    options: object,
+    klass: T,
+  ): T;
 
   export function signal_handler_block(
     instance: object,
@@ -445,6 +497,9 @@ declare namespace GObject {
 
 // Main extension interface for keybindings
 declare module "resource:///org/gnome/shell/ui/main.js" {
+  import * as Clutter from "gi://Clutter";
+  import * as Gio from "gi://Gio";
+
   export const wm: {
     addKeybinding(
       name: string,
@@ -468,6 +523,31 @@ declare module "resource:///org/gnome/shell/ui/main.js" {
     uiGroup: Clutter.Actor;
     addChrome(actor: Clutter.Actor): void;
     removeChrome(actor: Clutter.Actor): void;
+  };
+
+  export const osdWindowManager: {
+    show(
+      monitor: number,
+      icon: Gio.GIcon | string,
+      label: string,
+      level: number | null,
+    ): void;
+    showOne(
+      monitor: number,
+      icon: Gio.GIcon,
+      label: string,
+      level: number | null,
+      maxLevel: number | null,
+    ): void;
+  };
+
+  export const panel: {
+    addToStatusArea(
+      role: string,
+      indicator: any,
+      position?: number,
+      box?: string,
+    ): any;
   };
 
   export function notify(title: string, body: string): void;
@@ -505,6 +585,7 @@ declare module "gi://St" {
 
       style_class: string;
       style: string;
+      opacity: number;
 
       add_style_class_name(className: string): void;
       remove_style_class_name(className: string): void;
@@ -549,6 +630,20 @@ declare module "gi://St" {
       constructor(params?: { text?: string; style_class?: string });
 
       text: string;
+    }
+
+    /**
+     * St.Icon - Icon widget for displaying symbolic/regular icons
+     */
+    class Icon extends Widget {
+      constructor(params?: {
+        icon_name?: string;
+        icon_size?: number;
+        style_class?: string;
+      });
+
+      icon_name: string;
+      icon_size: number;
     }
   }
 
@@ -705,4 +800,44 @@ declare module "resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js" {
   }
 
   export function gettext(str: string): string;
+}
+
+// =============================================================================
+// PanelMenu - Panel button with dropdown menu
+// =============================================================================
+
+declare module "resource:///org/gnome/shell/ui/panelMenu.js" {
+  import St from "gi://St";
+  import Clutter from "gi://Clutter";
+
+  export class Button extends St.Widget {
+    constructor(
+      menuAlignment: number,
+      nameText: string,
+      dontCreateMenu?: boolean,
+    );
+    _init(...args: any[]): void;
+
+    menu: any; // PopupMenu.PopupMenu
+    add_child(child: Clutter.Actor): void;
+    connect(signal: string, callback: (...args: any[]) => any): number;
+    destroy(): void;
+  }
+}
+
+// =============================================================================
+// PopupMenu - Dropdown menus for panel buttons
+// =============================================================================
+
+declare module "resource:///org/gnome/shell/ui/popupMenu.js" {
+  import St from "gi://St";
+
+  export class PopupMenuItem extends St.Widget {
+    constructor(text: string, params?: object);
+    connect(signal: string, callback: () => void): number;
+  }
+
+  export class PopupSeparatorMenuItem extends St.Widget {
+    constructor();
+  }
 }

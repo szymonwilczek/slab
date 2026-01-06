@@ -41,12 +41,14 @@ import {
   swapDirection,
   adjustMasterRatio,
 } from "./managers/keyboard.js";
+import { SlabIndicator, SlabIndicatorInstance } from "./ui/indicator.js";
 
 // =============================================================================
 // EXTENSION LIFECYCLE
 // =============================================================================
 export default class SlabExtension extends Extension {
   private _state: SlabState | null = null;
+  private _indicator: SlabIndicatorInstance | null = null;
 
   enable(): void {
     console.log("[SLAB] Extension enable() called");
@@ -80,6 +82,9 @@ export default class SlabExtension extends Extension {
           console.log("[SLAB] Keybinding triggered!");
           if (this._state) {
             toggleSlab(this._state);
+            // Update indicator and show OSD
+            this._indicator?.updateState(this._state.tilingEnabled);
+            SlabIndicator.showOSD(this._state.tilingEnabled);
           }
         },
       );
@@ -87,6 +92,42 @@ export default class SlabExtension extends Extension {
     } catch (e) {
       console.error("[SLAB] Failed to register toggle keybinding:", e);
     }
+
+    // panel indicator
+    const stateForIndicator = this._state;
+    const extensionRef = this;
+    const indicator = new (SlabIndicator as any)();
+    this._indicator = indicator;
+
+    if (this._indicator) {
+      (this._indicator as any).setup(
+        this._state,
+        () => {
+          // toggle callback
+          console.log("[SLAB-EXT] Indicator toggle callback fired");
+          console.log("[SLAB-EXT] State exists:", !!stateForIndicator);
+          if (stateForIndicator) {
+            console.log("[SLAB-EXT] Calling toggleSlab");
+            toggleSlab(stateForIndicator);
+            console.log(
+              "[SLAB-EXT] toggleSlab completed, tilingEnabled:",
+              stateForIndicator.tilingEnabled,
+            );
+            extensionRef._indicator?.updateState(
+              stateForIndicator.tilingEnabled,
+            );
+            SlabIndicator.showOSD(stateForIndicator.tilingEnabled);
+          }
+        },
+        () => {
+          // open prefs callback
+          console.log("[SLAB-EXT] Indicator openPrefs callback fired");
+          extensionRef.openPreferences();
+          console.log("[SLAB-EXT] openPreferences called");
+        },
+      );
+    }
+    Main.panel.addToStatusArea("slab-indicator", this._indicator);
 
     initKeyboardManager(this._state);
 
@@ -255,6 +296,12 @@ export default class SlabExtension extends Extension {
 
       // Clean up keyboard manager
       cleanupKeyboardManager();
+
+      // Destroy panel indicator
+      if (this._indicator) {
+        this._indicator.destroy();
+        this._indicator = null;
+      }
 
       // Clear state
       this._state = null;
