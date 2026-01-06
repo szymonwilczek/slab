@@ -66,6 +66,7 @@ export function focusDirection(direction: Direction): void {
   if (!focusedWindow) {
     // Focus first window if none focused
     windows[0].focus(Meta.CURRENT_TIME);
+    windows[0].raise();  // Bring to top of window stack
     return;
   }
 
@@ -76,6 +77,7 @@ export function focusDirection(direction: Direction): void {
   if (currentIndex === -1) {
     // Focused window not in tiled set, focus first
     windows[0].focus(Meta.CURRENT_TIME);
+    windows[0].raise();  // Bring to top of window stack
     return;
   }
 
@@ -85,6 +87,7 @@ export function focusDirection(direction: Direction): void {
       `[SLAB-KEYBOARD] Focus ${direction}: ${currentIndex} -> ${targetIndex}`,
     );
     windows[targetIndex].focus(Meta.CURRENT_TIME);
+    windows[targetIndex].raise();  // Bring to top of window stack
   }
 }
 
