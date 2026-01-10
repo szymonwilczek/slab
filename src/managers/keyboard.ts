@@ -10,6 +10,7 @@ import {
   getCurrentTiledWindows,
   getCurrentLayoutPositions,
   swapWindowPositions,
+  applyMasterStackToWorkspace,
 } from "./tiling.js";
 
 // =============================================================================
@@ -170,7 +171,10 @@ export function adjustMasterRatio(
       `[SLAB-KEYBOARD] Master ratio: ${currentRatio.toFixed(2)} -> ${newRatio.toFixed(2)}`,
     );
     settings.set_double("master-ratio", newRatio);
-    // Settings change will trigger re-tile via signal connection
+
+    if (state && state.tilingEnabled) {
+      applyMasterStackToWorkspace(state, false);
+    }
   }
 }
 
