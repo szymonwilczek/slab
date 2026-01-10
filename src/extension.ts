@@ -34,6 +34,7 @@ import {
   applyMasterStackToWorkspace,
   popOutWindow,
   popInWindow,
+  handleResizeEnd,
 } from "./managers/tiling.js";
 import {
   initKeyboardManager,
@@ -260,6 +261,31 @@ export default class SlabExtension extends Extension {
       },
     );
     this._state.signalIds.push(sigId);
+
+    // listen for resize completion (grab-op-end) to adjust layout
+    const resizeSigId = display.connect(
+      "grab-op-end",
+      (_display: Meta.Display, window: Meta.Window, grabOp: number) => {
+        if (!this._state?.tilingEnabled) return;
+
+        // resize operation
+        // GrabOp values: RESIZING_* are in range 1-16 (roughly)
+        // check if its any resize operation by looking at the high bits
+        const isResize =
+          (grabOp & 0xf000) !== 0 || (grabOp >= 1 && grabOp <= 16);
+
+        if (isResize && window) {
+          console.log(
+            "[SLAB] Resize grab ended for:",
+            window.title,
+            "op:",
+            grabOp,
+          );
+          handleResizeEnd(this._state, window);
+        }
+      },
+    );
+    this._state.signalIds.push(resizeSigId);
 
     // listen for workspace switches to save/load per-workspace state
     const workspaceManager = global.workspace_manager;

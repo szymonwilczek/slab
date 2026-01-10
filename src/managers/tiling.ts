@@ -256,7 +256,7 @@ export function restoreFloatingPositions(
             if (!window.is_hidden()) {
               window.raise();
             }
-          } catch (e) { }
+          } catch (e) {}
         }
       }
     }
@@ -268,7 +268,7 @@ export function restoreFloatingPositions(
         try {
           actor.restore_easing_state();
           actor.show();
-        } catch (e) { }
+        } catch (e) {}
       }
     });
   });
@@ -632,7 +632,7 @@ export function applyMasterStackToWorkspace(
           // Show immediately, but keep easing disabled to swallow client-side adjustments
           actor.show();
           (actor as any).remove_all_transitions();
-        } catch (e) { }
+        } catch (e) {}
       }
     });
 
@@ -642,7 +642,7 @@ export function applyMasterStackToWorkspace(
       for (const { actor } of windowActors) {
         try {
           actor.restore_easing_state();
-        } catch (e) { }
+        } catch (e) {}
       }
       resumeAnimations();
     });
@@ -786,6 +786,71 @@ export function handleWindowClose(
   });
 }
 
+// =============================================================================
+// WINDOW RESIZE HANDLING
+// =============================================================================
+
+/**
+ * Handle window resize completion - recalculate master ratio based on new dimensions.
+ * Called when resize grab operation ends (user releases mouse).
+ */
+export function handleResizeEnd(state: SlabState, window: Meta.Window): void {
+  if (!state.tilingEnabled) return;
+
+  const tiledWindows = getCurrentTiledWindows();
+  const windowIndex = tiledWindows.indexOf(window);
+  if (windowIndex === -1) return; // Not a tiled window
+
+  const frame = window.get_frame_rect();
+  const layout = currentLayoutPositions[windowIndex];
+  if (!layout) return;
+
+  const workspace = global.workspace_manager.get_active_workspace();
+  const workArea = workspace.get_work_area_for_monitor(state.currentMonitor);
+  const gap = state.settings!.get_int("window-gap");
+
+  const isMaster = windowIndex === 0 && tiledWindows.length > 1;
+
+  if (isMaster) {
+    // master width changed - new ratio
+    const availableWidth = workArea.width - 3 * gap;
+    const newRatio = Math.max(0.2, Math.min(0.8, frame.width / availableWidth));
+
+    const currentRatio = state.settings!.get_double("master-ratio");
+    if (Math.abs(newRatio - currentRatio) > 0.01) {
+      log(
+        `Resize end: master width changed, new ratio: ${newRatio.toFixed(2)}`,
+      );
+      state.settings!.set_double("master-ratio", newRatio);
+      applyMasterStackToWorkspace(state, false);
+    } else {
+      // snap back if ratio didnt change significantly
+      applyMasterStackToWorkspace(state, false);
+    }
+  } else if (tiledWindows.length > 1) {
+    // stack window - check if left edge moved
+    const expectedX = layout.x;
+    if (Math.abs(frame.x - expectedX) > 10) {
+      // left edge moved = new master width
+      const masterWidth = frame.x - workArea.x - 2 * gap;
+      const availableWidth = workArea.width - 3 * gap;
+      const newRatio = Math.max(
+        0.2,
+        Math.min(0.8, masterWidth / availableWidth),
+      );
+
+      const currentRatio = state.settings!.get_double("master-ratio");
+      if (Math.abs(newRatio - currentRatio) > 0.01) {
+        log(
+          `Resize end: stack left edge moved, new ratio: ${newRatio.toFixed(2)}`,
+        );
+        state.settings!.set_double("master-ratio", newRatio);
+      }
+    }
+    // snap back to tiled position
+    applyMasterStackToWorkspace(state, false);
+  }
+}
 /**
  * Connect 'unmanaging' signal to a window for close handling.
  */
@@ -807,7 +872,7 @@ export function connectWindowSignal(
     state.windowSignals.set(windowId, [sigId]);
     console.log("[SLAB] Connected unmanaging signal for:", window.title);
   } catch (e) {
-    console.error("[SLAB] Failed to connect unmanaging signal:", e);
+    console.error("[SLAB] Failed to connect window signal:", e);
   }
 }
 
