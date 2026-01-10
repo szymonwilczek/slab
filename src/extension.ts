@@ -58,16 +58,20 @@ export default class SlabExtension extends Extension {
     this._state = {
       tilingEnabled: false,
       floatingSnapshot: new Map(),
+      currentMasterWindowId: null,
+      windowSignals: new Map(),
+      poppedOutWindows: new Set(),
+      workspaceStates: new Map(),
+      activeWorkspaceIndex: global.workspace_manager
+        .get_active_workspace()
+        .index(),
       settings: this.getSettings(),
       signalIds: [],
       blockedSignals: new Map(),
       pendingLaterId: null,
       currentMonitor: 0,
-      currentMasterWindowId: null,
-      windowSignals: new Map(),
       pendingNewWindowTimeoutId: null,
       dragState: null,
-      poppedOutWindows: new Set(),
     };
 
     console.log("[SLAB] Settings loaded:", this._state.settings);
@@ -256,6 +260,58 @@ export default class SlabExtension extends Extension {
       },
     );
     this._state.signalIds.push(sigId);
+
+    // listen for workspace switches to save/load per-workspace state
+    const workspaceManager = global.workspace_manager;
+    const wsSigId = workspaceManager.connect("active-workspace-changed", () => {
+      if (!this._state) return;
+
+      const newIndex = workspaceManager.get_active_workspace().index();
+      const oldIndex = this._state.activeWorkspaceIndex;
+
+      if (newIndex === oldIndex) return;
+
+      console.log(`[SLAB] Workspace switch: ${oldIndex} -> ${newIndex}`);
+
+      // save current workspace state (only if tiling was enabled)
+      if (this._state.tilingEnabled) {
+        this._state.workspaceStates.set(oldIndex, {
+          tilingEnabled: this._state.tilingEnabled,
+          floatingSnapshot: new Map(this._state.floatingSnapshot),
+          currentMasterWindowId: this._state.currentMasterWindowId,
+          windowSignals: new Map(this._state.windowSignals),
+          poppedOutWindows: new Set(this._state.poppedOutWindows),
+        });
+      }
+
+      // load new workspace state (or defaults if not stored)
+      const savedState = this._state.workspaceStates.get(newIndex);
+      if (savedState) {
+        this._state.tilingEnabled = savedState.tilingEnabled;
+        this._state.floatingSnapshot = new Map(savedState.floatingSnapshot);
+        this._state.currentMasterWindowId = savedState.currentMasterWindowId;
+        this._state.windowSignals = new Map(savedState.windowSignals);
+        this._state.poppedOutWindows = new Set(savedState.poppedOutWindows);
+        console.log(
+          `[SLAB] Loaded saved state for workspace ${newIndex}, tiling: ${savedState.tilingEnabled}`,
+        );
+      } else {
+        // reset to defaults (OFF)
+        this._state.tilingEnabled = false;
+        this._state.floatingSnapshot = new Map();
+        this._state.currentMasterWindowId = null;
+        this._state.windowSignals = new Map();
+        this._state.poppedOutWindows = new Set();
+        console.log(
+          `[SLAB] No saved state for workspace ${newIndex}, tiling: OFF`,
+        );
+      }
+
+      this._state.activeWorkspaceIndex = newIndex;
+
+      this._indicator?.updateState(this._state.tilingEnabled);
+    });
+    this._state.signalIds.push(wsSigId);
 
     console.log("[SLAB] Extension enabled successfully");
   }

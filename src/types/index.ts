@@ -37,11 +37,36 @@ export interface DragState {
   signalIds: number[];
 }
 
+/**
+ * Per-workspace state storage (for saving/loading when switching workspaces)
+ */
+export interface WorkspaceState {
+  tilingEnabled: boolean;
+  floatingSnapshot: FloatingSnapshot;
+  currentMasterWindowId: number | null;
+  windowSignals: Map<number, number[]>;
+  poppedOutWindows: Set<number>;
+}
+
 export interface SlabState {
-  /** Is tiling currently active? */
+  /** Is tiling currently active on the active workspace? */
   tilingEnabled: boolean;
   /** Snapshot of window positions before tiling was enabled */
   floatingSnapshot: FloatingSnapshot;
+  /** Current Master window stable_sequence (for promotion on close) */
+  currentMasterWindowId: number | null;
+  /** Map of window stable_sequence -> connected signal handler IDs */
+  windowSignals: Map<number, number[]>;
+  /** Set of window stable_sequence IDs that are "popped out" (floating above layout) */
+  poppedOutWindows: Set<number>;
+
+  // === PER-WORKSPACE STORAGE ===
+  /** Stored state for each workspace (saved on switch, loaded on return) */
+  workspaceStates: Map<number, WorkspaceState>;
+  /** Currently active workspace index */
+  activeWorkspaceIndex: number;
+
+  // === GLOBAL STATE (shared across all workspaces) ===
   /** GSettings instance */
   settings: Gio.Settings | null;
   /** Connected signal IDs for cleanup (display-level signals) */
@@ -52,16 +77,10 @@ export interface SlabState {
   pendingLaterId: number | null;
   /** Monitor index where tiling is active */
   currentMonitor: number;
-  /** Current Master window stable_sequence (for promotion on close) */
-  currentMasterWindowId: number | null;
-  /** Map of window stable_sequence -> connected signal handler IDs */
-  windowSignals: Map<number, number[]>;
-  /** Pending GLib.timeout_add source ID for new window positioning (for cancellation) */
+  /** Pending GLib.timeout_add source ID for new window positioning */
   pendingNewWindowTimeoutId: number | null;
   /** Current drag state (null if not dragging) */
   dragState: DragState | null;
-  /** Set of window stable_sequence IDs that are "popped out" (floating above layout) */
-  poppedOutWindows: Set<number>;
 }
 
 // Global declaration for TypeScript
