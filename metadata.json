@@ -3,10 +3,6 @@
   "description": "High-performance Actor-First tiling window manager with zero-latency visual feedback",
   "uuid": "slab@slab.dev",
   "shell-version": [
-    "45",
-    "46",
-    "47",
-    "48",
     "49"
   ],
   "version": 1,
