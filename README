@@ -3,11 +3,9 @@ SLAB
 
 WARNING: READ THIS FIRST
 ------------------------
-This software is in VERY EARLY ALPHA stage.
-There are known bugs.
-There are unknown bugs.
-I am aware of them and working on them constantly.
-Use at your own risk. Expect crashes.
+This software is in BETA stage.
+While more stable than alpha, bugs may still exist.
+Feedback is welcome.
 
 WHAT IS SLAB?
 -------------
