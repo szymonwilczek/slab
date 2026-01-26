@@ -655,6 +655,74 @@ declare module "gi://St" {
 // GTK4 - For preferences UI
 // =============================================================================
 
+declare module "gi://Gdk" {
+  namespace Gdk {
+    // Special keys
+    const KEY_Escape: number;
+    const KEY_BackSpace: number;
+    const KEY_Return: number;
+    const KEY_Tab: number;
+    const KEY_ISO_Left_Tab: number;
+    const KEY_space: number;
+    const KEY_KP_Enter: number;
+
+    // Arrow keys
+    const KEY_Left: number;
+    const KEY_Right: number;
+    const KEY_Up: number;
+    const KEY_Down: number;
+
+    // Navigation keys
+    const KEY_Home: number;
+    const KEY_End: number;
+    const KEY_Page_Up: number;
+    const KEY_Page_Down: number;
+
+    // Modifier keys
+    const KEY_Shift_L: number;
+    const KEY_Shift_R: number;
+    const KEY_Control_L: number;
+    const KEY_Control_R: number;
+    const KEY_Alt_L: number;
+    const KEY_Alt_R: number;
+    const KEY_Super_L: number;
+    const KEY_Super_R: number;
+    const KEY_Meta_L: number;
+    const KEY_Meta_R: number;
+    const KEY_Hyper_L: number;
+    const KEY_Hyper_R: number;
+    const KEY_ISO_Level3_Shift: number;
+    const KEY_ISO_Level5_Shift: number;
+
+    // Function keys
+    const KEY_F1: number;
+    const KEY_F2: number;
+    const KEY_F3: number;
+    const KEY_F4: number;
+    const KEY_F5: number;
+    const KEY_F6: number;
+    const KEY_F7: number;
+    const KEY_F8: number;
+    const KEY_F9: number;
+    const KEY_F10: number;
+    const KEY_F11: number;
+    const KEY_F12: number;
+    const KEY_F35: number;
+
+    // Letter keys
+    const KEY_h: number;
+    const KEY_j: number;
+    const KEY_k: number;
+    const KEY_l: number;
+    const KEY_H: number;
+    const KEY_J: number;
+    const KEY_K: number;
+    const KEY_L: number;
+  }
+
+  export default Gdk;
+}
+
 declare module "gi://Gtk" {
   namespace Gtk {
     enum Align {
@@ -663,6 +731,13 @@ declare module "gi://Gtk" {
       END = 2,
       CENTER = 3,
       BASELINE = 4,
+    }
+
+    enum PropagationPhase {
+      NONE = 0,
+      CAPTURE = 1,
+      BUBBLE = 2,
+      TARGET = 3,
     }
 
     class Widget {
@@ -707,7 +782,9 @@ declare module "gi://Gtk" {
       });
     }
 
-    class EventController {}
+    class EventController {
+      set_propagation_phase(phase: PropagationPhase): void;
+    }
 
     class EventControllerKey extends EventController {
       connect(
@@ -718,6 +795,15 @@ declare module "gi://Gtk" {
           keycode: number,
           state: number,
         ) => boolean,
+      ): number;
+      connect(
+        signal: "key-released",
+        callback: (
+          controller: EventControllerKey,
+          keyval: number,
+          keycode: number,
+          state: number,
+        ) => void,
       ): number;
     }
 
