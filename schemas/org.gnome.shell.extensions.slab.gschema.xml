@@ -2,10 +2,6 @@
 <schemalist>
   <schema id="org.gnome.shell.extensions.slab" path="/org/gnome/shell/extensions/slab/">
     
-    <!-- ============================================================ -->
-    <!-- MAIN KEYBINDING -->
-    <!-- ============================================================ -->
-    
     <key name="toggle-tiling" type="as">
       <default><![CDATA[['<Super><Shift>t']]]></default>
       <summary>Toggle Tiling Mode</summary>
@@ -16,9 +12,14 @@
       </description>
     </key>
     
-    <!-- ============================================================ -->
-    <!-- LAYOUT SETTINGS -->
-    <!-- ============================================================ -->
+    <key name="retile-trigger" type="as">
+      <default><![CDATA[['<Super><Shift>r']]]></default>
+      <summary>Retile Layout</summary>
+      <description>
+        Force a re-calculation of the layout using the current set of windows.
+        Useful if windows get out of sync or to integrate a new window manually.
+      </description>
+    </key>
     
     <key name="master-ratio" type="d">
       <default>0.55</default>
@@ -40,10 +41,6 @@
         Set to 0 for a seamless, gap-free layout.
       </description>
     </key>
-    
-    <!-- ============================================================ -->
-    <!-- FOCUS NAVIGATION KEYBINDINGS -->
-    <!-- ============================================================ -->
     
     <key name="focus-left" type="as">
       <default><![CDATA[['<Super>h']]]></default>
@@ -81,10 +78,6 @@
       </description>
     </key>
     
-    <!-- ============================================================ -->
-    <!-- SWAP KEYBINDINGS -->
-    <!-- ============================================================ -->
-    
     <key name="swap-left" type="as">
       <default><![CDATA[['<Super><Shift>h']]]></default>
       <summary>Swap Left</summary>
@@ -119,10 +112,6 @@
       </description>
     </key>
     
-    <!-- ============================================================ -->
-    <!-- MASTER RATIO ADJUSTMENT -->
-    <!-- ============================================================ -->
-    
     <key name="increase-master-ratio" type="as">
       <default><![CDATA[['<Super>bracketright']]]></default>
       <summary>Increase Master Size</summary>
@@ -140,10 +129,6 @@
         The change is applied immediately and persists across sessions.
       </description>
     </key>
-    
-    <!-- ============================================================ -->
-    <!-- POP-OUT / POP-IN WINDOW -->
-    <!-- ============================================================ -->
     
     <key name="pop-out-window" type="as">
       <default><![CDATA[['<Super>z']]]></default>
