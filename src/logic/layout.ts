@@ -1,7 +1,3 @@
-// =============================================================================
-// MASTER-STACK LAYOUT WITH DYNAMIC SIZING AND OVERFLOW HANDLING
-// =============================================================================
-
 const MIN_WINDOW_HEIGHT = 350;
 
 interface LayoutEntry {
@@ -40,7 +36,7 @@ export function calculateMasterStackLayout(
 
   const result: LayoutEntry[] = [];
 
-  // Single window: full work area minus gaps
+  // single window: full work area minus gaps
   if (n === 1) {
     result.push({
       window: windows[0],
@@ -83,7 +79,7 @@ export function calculateMasterStackLayout(
 
   const tileableStackCount = tileableStackWindows.length;
 
-  // Master window
+  // master window
   result.push({
     window: windows[0],
     x: workArea.x + gap,
