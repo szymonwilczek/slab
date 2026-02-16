@@ -1,40 +1,24 @@
-// =============================================================================
-// DRAG & DROP MANAGER
-// =============================================================================
-// Handles drag-and-drop window rearrangement for SLAB tiling.
-// Detects when a tiled window is grabbed, shows visual preview of drop zones,
-// and performs window swap on drop.
-
 import Meta from "gi://Meta";
 import { SlabState } from "../types/index.js";
 import { DropZoneOverlay, DropZone, getDropZoneAtPosition } from "./overlay.js";
-
-// =============================================================================
-// MODULE STATE
-// =============================================================================
 
 let overlay: DropZoneOverlay | null = null;
 let grabBeginSignalId: number | null = null;
 let grabEndSignalId: number | null = null;
 let positionChangedSignalId: number | null = null;
 
-/** Current layout zones (updated when tiling is recalculated) */
+/** current layout zones (updated when tiling is recalculated) */
 let currentZones: DropZone[] = [];
 
-/** Callback to get current tiled windows order */
+/** callback to get current tiled windows order */
 let getTiledWindowsCallback: (() => Meta.Window[]) | null = null;
 
-/** Callback to swap window positions and re-tile */
+/** callback to swap window positions and re-tile */
 let swapWindowsCallback: ((indexA: number, indexB: number) => void) | null =
   null;
 
-// =============================================================================
-// INITIALIZATION
-// =============================================================================
-
 /**
  * Initialize the drag manager.
- * Call this when tiling is enabled.
  */
 export function initDragManager(
   state: SlabState,
@@ -43,14 +27,10 @@ export function initDragManager(
 ): void {
   console.log("[SLAB-DRAG] Initializing drag manager");
 
-  // Store callbacks
   getTiledWindowsCallback = getTiledWindows;
   swapWindowsCallback = swapWindows;
-
-  // Create overlay
   overlay = new DropZoneOverlay();
 
-  // Connect to display signals
   const display = global.display;
 
   grabBeginSignalId = display.connect(
@@ -72,12 +52,10 @@ export function initDragManager(
 
 /**
  * Clean up the drag manager.
- * When tiling is disabled or extension is destroyed.
  */
 export function cleanupDragManager(state: SlabState): void {
   console.log("[SLAB-DRAG] Cleaning up drag manager");
 
-  // Disconnect display signals
   const display = global.display;
 
   if (grabBeginSignalId !== null) {
@@ -90,16 +68,13 @@ export function cleanupDragManager(state: SlabState): void {
     grabEndSignalId = null;
   }
 
-  // Clean up any active drag
   cancelDrag(state);
 
-  // Destroy overlay
   if (overlay) {
     overlay.destroy();
     overlay = null;
   }
 
-  // Clear callbacks
   getTiledWindowsCallback = null;
   swapWindowsCallback = null;
   currentZones = [];
@@ -107,13 +82,8 @@ export function cleanupDragManager(state: SlabState): void {
   console.log("[SLAB-DRAG] Drag manager cleaned up");
 }
 
-// =============================================================================
-// DROP ZONE MANAGEMENT
-// =============================================================================
-
 /**
  * Update the available drop zones based on current layout.
- * After layout is calculated.
  */
 export function updateDropZones(zones: DropZone[]): void {
   currentZones = zones;
@@ -144,10 +114,6 @@ export function buildDropZonesFromWindows(windows: Meta.Window[]): DropZone[] {
   return zones;
 }
 
-// =============================================================================
-// DRAG EVENT HANDLERS
-// =============================================================================
-
 /**
  * Handle grab begin - start tracking if moving a tiled window.
  */
@@ -156,13 +122,10 @@ function handleGrabBegin(
   window: Meta.Window,
   grabOp: Meta.GrabOp,
 ): void {
-  // Only handle when tiling is enabled
   if (!state.tilingEnabled) {
     return;
   }
 
-  // Only handle MOVING operations (not resize)
-  // Accept regular MOVING, KEYBOARD_MOVING, and MOVING_UNCONSTRAINED (Meta+drag)
   const isMovingOp =
     grabOp === Meta.GrabOp.MOVING ||
     grabOp === Meta.GrabOp.KEYBOARD_MOVING ||
@@ -173,7 +136,6 @@ function handleGrabBegin(
     return;
   }
 
-  // Check if this window is in our tiled set
   if (!getTiledWindowsCallback) {
     return;
   }
@@ -191,18 +153,15 @@ function handleGrabBegin(
 
   console.log(`[SLAB-DRAG] Drag started for: ${window.title} (index ${index})`);
 
-  // Build drop zones from current layout
   const zones = buildDropZonesFromWindows(tiledWindows);
   updateDropZones(zones);
 
-  // Set up drag state
   state.dragState = {
     draggedWindow: window,
     originalIndex: index,
     signalIds: [],
   };
 
-  // Connect to position changes during drag
   positionChangedSignalId = window.connect("position-changed", () => {
     handlePositionChanged(state, window);
   });
@@ -217,19 +176,15 @@ function handlePositionChanged(state: SlabState, window: Meta.Window): void {
     return;
   }
 
-  // Get current pointer position (use window center as approximation)
   const frame = window.get_frame_rect();
   const centerX = frame.x + frame.width / 2;
   const centerY = frame.y + frame.height / 2;
 
-  // Find drop zone under pointer
   const zone = getDropZoneAtPosition(centerX, centerY, currentZones);
 
   if (zone && zone.index !== state.dragState.originalIndex) {
-    // Show overlay on target zone (not dragged window's original zone)
     overlay.show(zone);
   } else {
-    // Hide overlay if over original position or outside zones
     overlay.hide();
   }
 }
@@ -246,10 +201,8 @@ function handleGrabEnd(state: SlabState, window: Meta.Window): void {
   const originalIndex = state.dragState.originalIndex;
   const draggedWindow = state.dragState.draggedWindow;
 
-  // Hide overlay
   overlay.hide();
 
-  // Perform swap if dropped on different zone
   if (currentZone && currentZone.index !== originalIndex) {
     console.log(
       `[SLAB-DRAG] Swapping index ${originalIndex} <-> ${currentZone.index}`,
@@ -259,7 +212,6 @@ function handleGrabEnd(state: SlabState, window: Meta.Window): void {
       swapWindowsCallback(originalIndex, currentZone.index);
     }
   } else {
-    // No swap - snap the window back to its original layout position
     console.log("[SLAB-DRAG] Drag ended without swap - restoring position");
 
     const originalZone = currentZones.find((z) => z.index === originalIndex);
@@ -277,7 +229,6 @@ function handleGrabEnd(state: SlabState, window: Meta.Window): void {
     }
   }
 
-  // Clean up drag state
   cancelDrag(state);
 }
 
@@ -286,12 +237,11 @@ function handleGrabEnd(state: SlabState, window: Meta.Window): void {
  */
 function cancelDrag(state: SlabState): void {
   if (state.dragState) {
-    // Disconnect position signal
     if (positionChangedSignalId !== null) {
       try {
         state.dragState.draggedWindow.disconnect(positionChangedSignalId);
       } catch (e) {
-        // Window might be destroyed
+        // window might be destroyed
       }
       positionChangedSignalId = null;
     }
