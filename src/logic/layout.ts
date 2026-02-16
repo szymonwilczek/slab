@@ -2,9 +2,7 @@
 // MASTER-STACK LAYOUT WITH DYNAMIC SIZING AND OVERFLOW HANDLING
 // =============================================================================
 
-const MIN_WINDOW_WIDTH = 500; // firefox needs ~450-500px
 const MIN_WINDOW_HEIGHT = 350;
-const MIN_MASTER_WIDTH = 500;
 
 interface LayoutEntry {
   window: Meta.Window;
