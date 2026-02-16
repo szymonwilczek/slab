@@ -16,11 +16,10 @@ export interface LayoutResult {
 /**
  * Calculate Master-Stack layout with dynamic sizing.
  *
- * Algorithm:
- * 1. Start with default master ratio
- * 2. Calculate rows/columns needed
- * 3. If row height OR column width < minimum, reduce master to fit more space
- * 4. If still can't fit at MIN_MASTER_WIDTH, skip excess windows (oldest first)
+ * - start with default master ratio
+ * - calculate rows/columns needed
+ * - if row height OR column width < minimum, reduce master to fit more space
+ * - if still cant fit at MIN_MASTER_WIDTH, skip excess windows (oldest first)
  *
  * Returns both layout entries and skipped windows.
  * Skipped windows are from the END of the stack (oldest windows).
