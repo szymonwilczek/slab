@@ -46,6 +46,7 @@ export interface WorkspaceState {
   currentMasterWindowId: number | null;
   windowSignals: Map<number, number[]>;
   poppedOutWindows: Set<number>;
+  tiledWindows: Set<number>;
 }
 
 export interface SlabState {
@@ -59,6 +60,8 @@ export interface SlabState {
   windowSignals: Map<number, number[]>;
   /** Set of window stable_sequence IDs that are "popped out" (floating above layout) */
   poppedOutWindows: Set<number>;
+  /** Set of window stable_sequence IDs that are currently part of the tiled layout */
+  tiledWindows: Set<number>;
 
   // === PER-WORKSPACE STORAGE ===
   /** Stored state for each workspace (saved on switch, loaded on return) */
