@@ -62,6 +62,7 @@ export default class SlabExtension extends Extension {
       currentMasterWindowId: null,
       windowSignals: new Map(),
       poppedOutWindows: new Set(),
+      tiledWindows: new Set(),
       workspaceStates: new Map(),
       activeWorkspaceIndex: global.workspace_manager
         .get_active_workspace()
@@ -77,7 +78,6 @@ export default class SlabExtension extends Extension {
 
     console.log("[SLAB] Settings loaded:", this._state.settings);
 
-    // Register toggle-tiling keybinding
     try {
       Main.wm.addKeybinding(
         "toggle-tiling",
@@ -97,6 +97,24 @@ export default class SlabExtension extends Extension {
       console.log("[SLAB] Toggle keybinding registered");
     } catch (e) {
       console.error("[SLAB] Failed to register toggle keybinding:", e);
+    }
+
+    try {
+      Main.wm.addKeybinding(
+        "retile-trigger",
+        this._state.settings!,
+        0, // Meta.KeyBindingFlags.NONE
+        Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW,
+        () => {
+          console.log("[SLAB] Retile keybinding triggered!");
+          if (this._state?.tilingEnabled) {
+            applyMasterStackToWorkspace(this._state, false);
+          }
+        },
+      );
+      console.log("[SLAB] Retile keybinding registered");
+    } catch (e) {
+      console.error("[SLAB] Failed to register retile keybinding:", e);
     }
 
     // panel indicator
@@ -232,35 +250,7 @@ export default class SlabExtension extends Extension {
 
     console.log("[SLAB] All keybindings registered successfully");
 
-    // Listen for new windows to maintain layout
     const display = global.display;
-    const sigId = display.connect(
-      "window-created",
-      (_display: Meta.Display, window: Meta.Window) => {
-        try {
-          // Ignore non-normal windows (tooltips, popups, menus, ...)
-          if (window.window_type !== Meta.WindowType.NORMAL) {
-            return;
-          }
-
-          if (this._state?.tilingEnabled) {
-            scheduleBeforeRedraw(() => {
-              // Ignore transient windows (dialogs with parent windows)
-              if (window.get_transient_for()) {
-                return;
-              }
-
-              if (this._state?.tilingEnabled) {
-                applyMasterStackToWorkspace(this._state, false, window);
-              }
-            });
-          }
-        } catch (e) {
-          console.error("[SLAB] window-created error:", e);
-        }
-      },
-    );
-    this._state.signalIds.push(sigId);
 
     // listen for resize completion (grab-op-end) to adjust layout
     const resizeSigId = display.connect(
@@ -307,6 +297,7 @@ export default class SlabExtension extends Extension {
           currentMasterWindowId: this._state.currentMasterWindowId,
           windowSignals: new Map(this._state.windowSignals),
           poppedOutWindows: new Set(this._state.poppedOutWindows),
+          tiledWindows: new Set(this._state.tiledWindows),
         });
       }
 
@@ -318,6 +309,7 @@ export default class SlabExtension extends Extension {
         this._state.currentMasterWindowId = savedState.currentMasterWindowId;
         this._state.windowSignals = new Map(savedState.windowSignals);
         this._state.poppedOutWindows = new Set(savedState.poppedOutWindows);
+        this._state.tiledWindows = new Set(savedState.tiledWindows);
         console.log(
           `[SLAB] Loaded saved state for workspace ${newIndex}, tiling: ${savedState.tilingEnabled}`,
         );
@@ -328,6 +320,7 @@ export default class SlabExtension extends Extension {
         this._state.currentMasterWindowId = null;
         this._state.windowSignals = new Map();
         this._state.poppedOutWindows = new Set();
+        this._state.tiledWindows = new Set();
         console.log(
           `[SLAB] No saved state for workspace ${newIndex}, tiling: OFF`,
         );
@@ -360,6 +353,7 @@ export default class SlabExtension extends Extension {
 
       // Remove all keybindings
       Main.wm.removeKeybinding("toggle-tiling");
+      Main.wm.removeKeybinding("retile-trigger");
       Main.wm.removeKeybinding("focus-left");
       Main.wm.removeKeybinding("focus-right");
       Main.wm.removeKeybinding("focus-up");
