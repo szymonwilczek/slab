@@ -57,76 +57,33 @@ export function calculateMasterStackLayout(
   const stackWindows = windows.slice(1);
   const stackCount = stackWindows.length;
 
-  // Try different master widths until we find one that works
-  let masterWidth = Math.floor((workArea.width - gap * 3) * masterRatio);
-  let stackWidth = workArea.width - gap * 3 - masterWidth;
+  const masterWidth = Math.floor((workArea.width - gap * 3) * masterRatio);
+  const stackWidth = workArea.width - gap * 3 - masterWidth;
+  const stackX = workArea.x + gap * 2 + masterWidth;
 
-  // Calculate layout metrics
-  let maxColumnsPerRow = Math.max(
-    1,
-    Math.floor((stackWidth + gap) / (MIN_WINDOW_WIDTH + gap)),
-  );
-  let numRows = Math.ceil(stackCount / maxColumnsPerRow);
-  let rowHeight = Math.floor((workArea.height - gap * (numRows + 1)) / numRows);
-  let colWidth = Math.floor(
-    (stackWidth - gap * (maxColumnsPerRow - 1)) / maxColumnsPerRow,
-  );
-
-  console.log(
-    `[SLAB-LAYOUT] Initial: master=${masterWidth}, stack=${stackWidth}, cols=${maxColumnsPerRow}, rows=${numRows}, rowH=${rowHeight}, colW=${colWidth}`,
-  );
-
-  // Reduce master width if we need more space (rowHeight OR colWidth below minimum)
-  let iterations = 0;
-  while (
-    (rowHeight < MIN_WINDOW_HEIGHT || colWidth < MIN_WINDOW_WIDTH) &&
-    masterWidth > MIN_MASTER_WIDTH &&
-    iterations < 20
-  ) {
-    masterWidth = Math.max(MIN_MASTER_WIDTH, masterWidth - 50);
-    stackWidth = workArea.width - gap * 3 - masterWidth;
-    maxColumnsPerRow = Math.max(
-      1,
-      Math.floor((stackWidth + gap) / (MIN_WINDOW_WIDTH + gap)),
-    );
-    numRows = Math.ceil(stackCount / maxColumnsPerRow);
-    rowHeight = Math.floor((workArea.height - gap * (numRows + 1)) / numRows);
-    colWidth = Math.floor(
-      (stackWidth - gap * (maxColumnsPerRow - 1)) / maxColumnsPerRow,
-    );
-    iterations++;
-
-    console.log(
-      `[SLAB-LAYOUT] Reduced[${iterations}]: master=${masterWidth}, stack=${stackWidth}, cols=${maxColumnsPerRow}, rows=${numRows}, rowH=${rowHeight}, colW=${colWidth}`,
-    );
-  }
-
-  // Calculate max capacity with current constraints
   const maxRows = Math.floor(
-    (workArea.height - gap + gap) / (MIN_WINDOW_HEIGHT + gap),
+    (workArea.height - gap) / (MIN_WINDOW_HEIGHT + gap),
   );
-  const maxStackWindows = maxRows * maxColumnsPerRow;
 
   console.log(
-    `[SLAB-LAYOUT] Capacity: maxRows=${maxRows}, maxCols=${maxColumnsPerRow}, maxStack=${maxStackWindows}, actualStack=${stackCount}`,
+    `[SLAB-LAYOUT] Strict 2-col: master=${masterWidth}, stack=${stackWidth}, maxRows=${maxRows}, stackCount=${stackCount}`,
   );
 
-  // Determine which windows we can tile - skip oldest (from end of array)
   let tileableStackWindows: Meta.Window[];
   let skippedWindows: Meta.Window[] = [];
 
-  if (stackCount > maxStackWindows) {
-    tileableStackWindows = stackWindows.slice(0, maxStackWindows);
-    skippedWindows = stackWindows.slice(maxStackWindows);
+  if (stackCount > maxRows) {
+    // too many windows -> keep first N, skip the rest (oldest/bottom of stack)
+    tileableStackWindows = stackWindows.slice(0, maxRows);
+    skippedWindows = stackWindows.slice(maxRows);
     console.log(
-      `[SLAB-LAYOUT] Skipping ${skippedWindows.length} oldest windows`,
+      `[SLAB-LAYOUT] Overflow! Keeping ${tileableStackWindows.length}, skipping ${skippedWindows.length} oldest windows`,
     );
   } else {
     tileableStackWindows = stackWindows;
   }
 
   const tileableStackCount = tileableStackWindows.length;
-  const stackX = workArea.x + gap * 2 + masterWidth;
 
   // Master window
   result.push({
@@ -141,56 +98,32 @@ export function calculateMasterStackLayout(
     return { entries: result, skippedWindows };
   }
 
-  // Recalculate for actual tileable count
-  numRows = Math.ceil(tileableStackCount / maxColumnsPerRow);
-  rowHeight = Math.floor((workArea.height - gap * (numRows + 1)) / numRows);
-
-  // Distribute windows across rows
-  const windowsPerRow: number[] = [];
-  let remaining = tileableStackCount;
-
-  for (let row = 0; row < numRows; row++) {
-    const rowsLeft = numRows - row;
-    const windowsInThisRow = Math.ceil(remaining / rowsLeft);
-    windowsPerRow.push(windowsInThisRow);
-    remaining -= windowsInThisRow;
-  }
-
-  console.log(
-    `[SLAB-LAYOUT] Final: ${tileableStackCount} windows, ${numRows} rows [${windowsPerRow.join(",")}], rowH=${rowHeight}`,
+  const numRows = tileableStackCount;
+  const rowHeight = Math.floor(
+    (workArea.height - gap * (numRows + 1)) / numRows,
   );
 
-  let windowIndex = 0;
+  console.log(
+    `[SLAB-LAYOUT] Final Stack: ${tileableStackCount} windows, rowH=${rowHeight}`,
+  );
 
-  for (let row = 0; row < numRows; row++) {
-    const windowsInRow = windowsPerRow[row];
-    const rowY = workArea.y + gap + row * (rowHeight + gap);
+  for (let i = 0; i < tileableStackCount; i++) {
+    const window = tileableStackWindows[i];
+    const rowY = workArea.y + gap + i * (rowHeight + gap);
 
-    // Calculate column width for this row
-    const totalGapsHorizontal = (windowsInRow - 1) * gap;
-    const availableRowWidth = stackWidth - totalGapsHorizontal;
-    const actualColWidth = Math.floor(availableRowWidth / windowsInRow);
+    // last item takes remaining height to be pixel-perfect
+    const actualHeight =
+      i === tileableStackCount - 1
+        ? workArea.y + workArea.height - gap - rowY
+        : rowHeight;
 
-    for (let col = 0; col < windowsInRow; col++) {
-      if (windowIndex >= tileableStackCount) break;
-
-      const window = tileableStackWindows[windowIndex];
-      const isLastInRow = col === windowsInRow - 1;
-      const windowX = stackX + col * (actualColWidth + gap);
-      const windowW = isLastInRow
-        ? stackX + stackWidth - windowX
-        : actualColWidth;
-
-      result.push({
-        window,
-        x: windowX,
-        y: rowY,
-        w: windowW,
-        h: rowHeight,
-      });
-
-      windowIndex++;
-    }
+    result.push({
+      window,
+      x: stackX,
+      y: rowY,
+      w: stackWidth,
+      h: actualHeight,
+    });
   }
 
   return { entries: result, skippedWindows };
