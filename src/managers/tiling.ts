@@ -276,18 +276,14 @@ export function restoreFloatingPositions(
 
 /**
  * Apply Master-Stack layout to all tileable windows.
- * @param newWindow - If provided, this window is being ADDED to the layout. We snapshot it but preserve others.
  */
 export function applyMasterStackToWorkspace(
   state: SlabState,
   captureSnapshot: boolean = false,
-  newWindow?: Meta.Window,
 ): void {
   console.log(
     "[SLAB] applyMasterStackToWorkspace called, captureSnapshot:",
     captureSnapshot,
-    "newWindow:",
-    newWindow?.title,
   );
 
   if (!state.settings) {
@@ -311,23 +307,7 @@ export function applyMasterStackToWorkspace(
   });
 
   // Snapshot Logic
-  if (newWindow) {
-    // Prevent cross-monitor disturbance EARLY
-    // If the new window is NOT on this monitor, do not re-tile this monitor
-    if (newWindow.get_monitor() !== monitor) {
-      console.log(
-        `[SLAB] New window is on monitor ${newWindow.get_monitor()}, skipping layout update for monitor ${monitor}`,
-      );
-      resumeAnimations();
-      return;
-    }
-    // Snapshot for newWindow will be captured AFTER layout calculation
-    // so we use the TARGET position, not the current (wrong) position
-    console.log(
-      "[SLAB] New window detected, will capture snapshot after layout calc",
-    );
-  } else if (captureSnapshot) {
-    // CASE B: Enabling tiling -> Snapshot EVERYONE
+  if (captureSnapshot) {
     log("Enabling tiling, clearing old snapshots and capturing full snapshot");
     state.floatingSnapshot.clear(); // prevent memory leak
     state.floatingSnapshot = captureFloatingSnapshot(allWindows);
@@ -354,7 +334,7 @@ export function applyMasterStackToWorkspace(
     console.log("[SLAB] === Atomic transition executing ===");
 
     // Suppress animations for all windows involved
-    for (const { window, actor } of windowActors) {
+    for (const { actor } of windowActors) {
       try {
         // 1. Skip Shell-level effects (Minimize/Maximize/Map)
         Main.wm.skipNextEffect(actor);
@@ -365,45 +345,15 @@ export function applyMasterStackToWorkspace(
         (actor as any).remove_all_transitions();
 
         // 3. FORCE HIDE to treat this visual update as atomic
-        if (
-          !newWindow ||
-          window.get_stable_sequence() !== newWindow.get_stable_sequence()
-        ) {
-          actor.hide();
-        }
+        actor.hide();
       } catch (e) {
         console.error("[SLAB] Error inhibiting animations:", e);
       }
     }
 
     // First: unfullscreen and unmaximize all windows
-    // CRITICAL: Handle newWindow EXPLICITLY first - it might not be in allWindows yet (race condition)
-    // or might have been fullscreen/maximized in previous session
-    if (newWindow) {
-      try {
-        if (newWindow.is_fullscreen()) {
-          console.log("[SLAB] Unfullscreening NEW WINDOW:", newWindow.title);
-          newWindow.unmake_fullscreen();
-        }
-        const newMaxState = getWindowMaximizeState(newWindow);
-        if (newMaxState !== 0) {
-          console.log("[SLAB] Unmaximizing NEW WINDOW:", newWindow.title);
-          newWindow.unmaximize(Meta.MaximizeFlags.BOTH);
-        }
-      } catch (e) {
-        console.error("[SLAB] Error unfullscreening new window:", e);
-      }
-    }
-
-    // Then handle all other windows
     for (const window of allWindows) {
       try {
-        // Skip newWindow - already handled above
-        if (
-          newWindow &&
-          window.get_stable_sequence() === newWindow.get_stable_sequence()
-        )
-          continue;
         if (window.is_hidden()) continue;
 
         if (window.is_fullscreen()) {
@@ -424,7 +374,7 @@ export function applyMasterStackToWorkspace(
     // Get tileable windows and calculate layout
     const windows = getTileableWindows(
       monitor,
-      newWindow,
+      undefined,
       state.currentMasterWindowId,
       state.poppedOutWindows,
     );
@@ -439,7 +389,13 @@ export function applyMasterStackToWorkspace(
       windows.push(...stack);
     }
 
-    // If no windows (shouldnt happen if we have newWindow), resume
+    // capture the set of windows that are part of the layout
+    state.tiledWindows.clear();
+    for (const w of windows) {
+      state.tiledWindows.add(w.get_stable_sequence());
+    }
+
+    // If no windows, resume
     if (windows.length === 0) {
       console.log("[SLAB] No tileable windows, resuming animations");
       // Show actors back if we hid them!
@@ -516,96 +472,11 @@ export function applyMasterStackToWorkspace(
     // Apply geometry to all windows
     for (const { window, x, y, w, h } of layout) {
       try {
-        // BYPASS HIDDEN CHECK FOR NEW WINDOW
-        // The new window might act hidden because we just hid its actor above!
-        if (window.is_hidden() && window !== newWindow) {
+        if (window.is_hidden()) {
           console.log(
             `[SLAB-DEBUG] Skipping invisible window: ${window.title}`,
           );
           continue;
-        }
-
-        // CAPTURE SNAPSHOT FOR NEW WINDOW WITH TARGET POSITION
-        if (
-          newWindow &&
-          window.get_stable_sequence() === newWindow.get_stable_sequence()
-        ) {
-          console.log(
-            "[SLAB] Capturing snapshot for new window with target position",
-          );
-          captureSingleWindowSnapshot(state, window, x, y, w, h);
-
-          // DELAYED MOVE FOR NEW WINDOW
-          // New windows might not be fully mapped yet, so move_resize_frame fails.
-          // GLib.timeout_add for a reliable time-based 100ms delay
-          // This ensures the window is fully visible and initialized before resize.
-          const targetX = x,
-            targetY = y,
-            targetW = w,
-            targetH = h;
-          const targetWindow = window;
-          // Cancel any previous pending timeout
-          if (state.pendingNewWindowTimeoutId !== null) {
-            GLib.source_remove(state.pendingNewWindowTimeoutId);
-          }
-
-          state.pendingNewWindowTimeoutId = GLib.timeout_add(
-            GLib.PRIORITY_DEFAULT,
-            NEW_WINDOW_DELAY_MS,
-            () => {
-              state.pendingNewWindowTimeoutId = null; // Clear on execution
-
-              // Safety check: ensure tiling is still enabled
-              if (!state.tilingEnabled) {
-                log("Tiling disabled, skipping delayed move");
-                return GLib.SOURCE_REMOVE;
-              }
-
-              // Safety check: ensure window still exists (wasnt closed)
-              // by verifying the window is still in the current workspace
-              try {
-                const workspace =
-                  global.workspace_manager.get_active_workspace();
-                const currentWindows = workspace.list_windows();
-                const windowStillExists = currentWindows.some(
-                  (w: Meta.Window) =>
-                    w.get_stable_sequence() ===
-                    targetWindow.get_stable_sequence(),
-                );
-
-                if (!windowStillExists) {
-                  log("Window was closed, skipping delayed move");
-                  return GLib.SOURCE_REMOVE;
-                }
-              } catch (e) {
-                log("Error checking window existence, skipping delayed move");
-                return GLib.SOURCE_REMOVE;
-              }
-
-              log(
-                `Delayed move (${NEW_WINDOW_DELAY_MS}ms) for new window:`,
-                targetWindow.title,
-                "to",
-                targetX,
-                targetY,
-                targetW,
-                targetH,
-              );
-              try {
-                targetWindow.move_resize_frame(
-                  true,
-                  targetX,
-                  targetY,
-                  targetW,
-                  targetH,
-                );
-              } catch (e) {
-                console.error("[SLAB] Delayed move failed:", e);
-              }
-              return GLib.SOURCE_REMOVE;
-            },
-          );
-          // Dont skip immediate move - do both!
         }
 
         console.log(
@@ -750,7 +621,16 @@ export function handleWindowClose(
 
   const closedId = closedWindow.get_stable_sequence();
 
-  // Remove from snapshot
+  // CHECK: Was this window part of the tiled layout?
+  if (!state.tiledWindows.has(closedId)) {
+    console.log(
+      "[SLAB] Closed window was NOT part of tiled layout, ignoring reflow",
+    );
+    return;
+  }
+
+  // remove from state
+  state.tiledWindows.delete(closedId);
   state.floatingSnapshot.delete(closedId);
 
   // Disconnect signals for this window
@@ -772,7 +652,6 @@ export function handleWindowClose(
 
   if (wasMaster) {
     // Master closed: clear the Master ID, applyMasterStackToWorkspace will pick new one
-    // based on focus/stacking order (top-right becomes new Master via reversed stack logic)
     state.currentMasterWindowId = null;
     console.log("[SLAB] Master closed, will promote new Master from stack");
   }
@@ -1163,6 +1042,6 @@ export function popInWindow(state: SlabState): void {
   // Remove from popped out set
   state.poppedOutWindows.delete(windowId);
 
-  // Recalculate layout with this window as the new master
-  applyMasterStackToWorkspace(state, false, focusedWindow);
+  state.currentMasterWindowId = windowId;
+  applyMasterStackToWorkspace(state, false);
 }
