@@ -1,9 +1,3 @@
-// =============================================================================
-// SLAB PREFERENCES UI
-// =============================================================================
-// GTK4/Adw preferences window for SLAB extension settings.
-// Provides controls for keybindings, master ratio, and window gap.
-
 import Adw from "gi://Adw";
 import Gdk from "gi://Gdk";
 import Gtk from "gi://Gtk";
@@ -13,10 +7,6 @@ import {
   ExtensionPreferences,
   gettext as _,
 } from "resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js";
-
-// =============================================================================
-// PREFERENCES CLASS
-// =============================================================================
 
 export default class SlabPreferences extends ExtensionPreferences {
   fillPreferencesWindow(window: Adw.PreferencesWindow): void {
@@ -35,10 +25,6 @@ export default class SlabPreferences extends ExtensionPreferences {
     this._addMasterSizeGroup(page, settings);
     this._addPopOutGroup(page, settings);
   }
-
-  // ===========================================================================
-  // LAYOUT SETTINGS
-  // ===========================================================================
 
   private _addLayoutGroup(
     page: Adw.PreferencesPage,
@@ -88,10 +74,6 @@ export default class SlabPreferences extends ExtensionPreferences {
     group.add(gapRow);
   }
 
-  // ===========================================================================
-  // MAIN KEYBINDING
-  // ===========================================================================
-
   private _addMainKeybindingGroup(
     page: Adw.PreferencesPage,
     settings: Gio.Settings,
@@ -110,10 +92,6 @@ export default class SlabPreferences extends ExtensionPreferences {
       _("Activate or deactivate the master-stack layout"),
     );
   }
-
-  // ===========================================================================
-  // NAVIGATION KEYBINDINGS
-  // ===========================================================================
 
   private _addNavigationGroup(
     page: Adw.PreferencesPage,
@@ -155,10 +133,6 @@ export default class SlabPreferences extends ExtensionPreferences {
     );
   }
 
-  // ===========================================================================
-  // SWAP KEYBINDINGS
-  // ===========================================================================
-
   private _addSwapGroup(
     page: Adw.PreferencesPage,
     settings: Gio.Settings,
@@ -199,10 +173,6 @@ export default class SlabPreferences extends ExtensionPreferences {
     );
   }
 
-  // ===========================================================================
-  // MASTER SIZE KEYBINDINGS
-  // ===========================================================================
-
   private _addMasterSizeGroup(
     page: Adw.PreferencesPage,
     settings: Gio.Settings,
@@ -229,10 +199,6 @@ export default class SlabPreferences extends ExtensionPreferences {
     );
   }
 
-  // ===========================================================================
-  // POP-OUT / POP-IN KEYBINDINGS
-  // ===========================================================================
-
   private _addPopOutGroup(
     page: Adw.PreferencesPage,
     settings: Gio.Settings,
@@ -258,10 +224,6 @@ export default class SlabPreferences extends ExtensionPreferences {
       _("Add floating window back into the tiled layout"),
     );
   }
-
-  // ===========================================================================
-  // KEYBINDING ROW HELPER
-  // ===========================================================================
 
   private _addKeybindingRow(
     group: Adw.PreferencesGroup,
@@ -307,10 +269,6 @@ export default class SlabPreferences extends ExtensionPreferences {
     group.add(row);
   }
 
-  // ===========================================================================
-  // KEYBINDING DIALOG
-  // ===========================================================================
-
   private _showKeybindingDialog(
     parent: Gtk.Window,
     settings: Gio.Settings,
@@ -347,13 +305,13 @@ export default class SlabPreferences extends ExtensionPreferences {
       ) => {
         const mask = state & Gtk.accelerator_get_default_mod_mask();
 
-        // Escape cancels immediately
+        // escape cancels immediately
         if (keyval === Gdk.KEY_Escape && mask === 0) {
           dialog.close();
           return true;
         }
 
-        // Backspace disables immediately
+        // backspace disables immediately
         if (keyval === Gdk.KEY_BackSpace && mask === 0) {
           settings.set_strv(key, []);
           shortcutLabel.set_accelerator("");
@@ -361,7 +319,6 @@ export default class SlabPreferences extends ExtensionPreferences {
           return true;
         }
 
-        // Filter out modifier-only presses
         if (this._isModifierKey(keyval)) {
           pendingKeyval = null;
           return false;
