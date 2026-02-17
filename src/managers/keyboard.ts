@@ -1,9 +1,3 @@
-// =============================================================================
-// KEYBOARD NAVIGATION MANAGER
-// =============================================================================
-// Handles keyboard shortcuts for navigating focus and swapping windows.
-// Uses vim-style h/j/k/l bindings for directional navigation.
-
 import Meta from "gi://Meta";
 import { SlabState } from "../types/index.js";
 import {
@@ -13,21 +7,8 @@ import {
   applyMasterStackToWorkspace,
 } from "./tiling.js";
 
-// =============================================================================
-// TYPES
-// =============================================================================
-
 type Direction = "left" | "right" | "up" | "down";
-
-// =============================================================================
-// MODULE STATE
-// =============================================================================
-
 let state: SlabState | null = null;
-
-// =============================================================================
-// INITIALIZATION
-// =============================================================================
 
 /**
  * Initialize the keyboard manager with extension state.
@@ -45,10 +26,6 @@ export function cleanupKeyboardManager(): void {
   console.log("[SLAB-KEYBOARD] Keyboard manager cleaned up");
 }
 
-// =============================================================================
-// FOCUS NAVIGATION
-// =============================================================================
-
 /**
  * Move focus to window in the given direction.
  */
@@ -65,9 +42,9 @@ export function focusDirection(direction: Direction): void {
 
   const focusedWindow = global.display.get_focus_window();
   if (!focusedWindow) {
-    // Focus first window if none focused
+    // focus first window if none focused
     windows[0].focus(Meta.CURRENT_TIME);
-    windows[0].raise();  // Bring to top of window stack
+    windows[0].raise(); // bring to top of window stack
     return;
   }
 
@@ -78,7 +55,7 @@ export function focusDirection(direction: Direction): void {
   if (currentIndex === -1) {
     // Focused window not in tiled set, focus first
     windows[0].focus(Meta.CURRENT_TIME);
-    windows[0].raise();  // Bring to top of window stack
+    windows[0].raise(); // Bring to top of window stack
     return;
   }
 
@@ -88,13 +65,9 @@ export function focusDirection(direction: Direction): void {
       `[SLAB-KEYBOARD] Focus ${direction}: ${currentIndex} -> ${targetIndex}`,
     );
     windows[targetIndex].focus(Meta.CURRENT_TIME);
-    windows[targetIndex].raise();  // Bring to top of window stack
+    windows[targetIndex].raise(); // Bring to top of window stack
   }
 }
-
-// =============================================================================
-// SWAP OPERATIONS
-// =============================================================================
 
 /**
  * Swap focused window with neighbor in the given direction.
@@ -131,10 +104,6 @@ export function swapDirection(direction: Direction): void {
     swapWindowPositions(state, currentIndex, targetIndex);
   }
 }
-
-// =============================================================================
-// MASTER RATIO ADJUSTMENT
-// =============================================================================
 
 /**
  * Increase or decrease the master ratio and re-tile.
@@ -178,10 +147,6 @@ export function adjustMasterRatio(
   }
 }
 
-// =============================================================================
-// NEIGHBOR CALCULATION
-// =============================================================================
-
 /**
  * Get the index of the neighbor window in a direction.
  * Uses spatial position to determine neighbors.
@@ -193,7 +158,7 @@ function getNeighborIndex(
 ): number {
   const positions = getCurrentLayoutPositions();
   if (positions.length !== windows.length) {
-    // Fallback: simple index-based navigation
+    // fallback: simple index-based navigation
     return getSimpleNeighborIndex(windows.length, currentIndex, direction);
   }
 
@@ -229,16 +194,15 @@ function getSimpleNeighborIndex(
 ): number {
   switch (direction) {
     case "left":
-      // Master is index 0, stack starts at 1
       if (currentIndex === 0) {
-        return count > 1 ? 1 : 0; // Go to first stack window
+        return count > 1 ? 1 : 0; // first stack window
       }
       return 0; // Go to master
     case "right":
       if (currentIndex === 0 && count > 1) {
-        return 1; // Master -> first stack
+        return 1; // master -> first stack
       }
-      return currentIndex; // Stay
+      return currentIndex; // stay
     case "up":
       if (currentIndex > 1) {
         return currentIndex - 1;
@@ -270,8 +234,7 @@ function isInDirection(
   const dx = candidateCenterX - currentCenterX;
   const dy = candidateCenterY - currentCenterY;
 
-  // Use a threshold angle to determine direction
-  const threshold = 0.7; // ~45 degrees
+  const threshold = 0.7; // +- 45 degrees
 
   switch (direction) {
     case "left":
