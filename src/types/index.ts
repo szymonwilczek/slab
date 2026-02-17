@@ -39,6 +39,7 @@ export interface SlabState {
 
   workspaceStates: Map<number, WorkspaceState>;
   activeWorkspaceIndex: number;
+  currentMonitor: number;
 
   settings: Gio.Settings | null;
   signalIds: number[];
