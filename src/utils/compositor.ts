@@ -16,26 +16,7 @@ export function scheduleBeforeRedraw(callback: () => void): void {
       console.error("[SLAB] global.compositor.get_laters() failed:", e);
     }
   }
-
-  if (typeof Meta.later_add === "function") {
-    try {
-      console.log("[SLAB] Using Meta.later_add() API");
-      Meta.later_add(Meta.LaterType.BEFORE_REDRAW, () => {
-        callback();
-        return false;
-      });
-      return;
-    } catch (e) {
-      console.error("[SLAB] Meta.later_add() failed:", e);
-    }
-  }
-
-  // fallback
-  console.warn("[SLAB] No laters API available, using GLib.idle_add fallback");
-  GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
-    callback();
-    return GLib.SOURCE_REMOVE;
-  });
+  console.error("[SLAB] global.compositor.get_laters() not available!");
 }
 
 export function scheduleAfterFrames(
