@@ -228,7 +228,7 @@ export default class SlabExtension extends Extension {
         if (!this._state?.tilingEnabled) return;
 
         const isResize =
-          (grabOp & 0xf000) !== 0 || (grabOp >= 1 && grabOp <= 16);
+          (grabOp & 0xf000) !== 0 || (grabOp >= 2 && grabOp <= 16);
 
         if (isResize && window) {
           console.log(
