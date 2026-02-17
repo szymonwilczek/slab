@@ -1,15 +1,5 @@
-// =============================================================================
-// DROP ZONE OVERLAY
-// =============================================================================
-// Visual preview overlay for drag-and-drop window rearrangement.
-// Shows a semi-transparent highlight where the dragged window will be placed.
-
 import St from "gi://St";
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
-
-// =============================================================================
-// TYPES
-// =============================================================================
 
 export interface DropZone {
   /** Position in tiled windows array (0 = master) */
@@ -23,13 +13,8 @@ export interface DropZone {
   windowId: number | null;
 }
 
-// =============================================================================
-// OVERLAY CLASS
-// =============================================================================
-
 /**
  * Visual overlay showing where a dragged window will be placed.
- * Uses St.Widget for GNOME Shell integration.
  */
 export class DropZoneOverlay {
   private actor: St.Widget | null = null;
@@ -37,10 +22,9 @@ export class DropZoneOverlay {
 
   /**
    * Show the overlay at the specified drop zone.
-   * Creates the actor if it doesn't exist.
+   * Creates the actor if it doesnt exist.
    */
   show(zone: DropZone): void {
-    // Skip if same zone (avoid flicker)
     if (
       this.currentZone &&
       this.currentZone.index === zone.index &&
@@ -52,10 +36,8 @@ export class DropZoneOverlay {
 
     this.currentZone = zone;
 
-    // Create actor if needed
     if (!this.actor) {
       this.actor = new St.Widget({
-        // Inline style for drop zone highlight
         style: `
           background-color: rgba(52, 152, 219, 0.35);
           border: 3px solid rgba(52, 152, 219, 0.8);
@@ -65,11 +47,9 @@ export class DropZoneOverlay {
         visible: true,
       });
 
-      // Add to GNOME Shell's UI layer (above windows)
       Main.layoutManager.uiGroup.add_child(this.actor);
     }
 
-    // Position and size the overlay
     this.actor.set_position(zone.x, zone.y);
     this.actor.set_size(zone.width, zone.height);
     this.actor.show();
@@ -99,7 +79,6 @@ export class DropZoneOverlay {
 
   /**
    * Clean up the overlay completely.
-   * When drag ends or extension is disabled.
    */
   destroy(): void {
     if (this.actor) {
@@ -114,10 +93,6 @@ export class DropZoneOverlay {
     this.currentZone = null;
   }
 }
-
-// =============================================================================
-// UTILITY FUNCTIONS
-// =============================================================================
 
 /**
  * Determine which drop zone the pointer is currently over.
