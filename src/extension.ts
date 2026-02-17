@@ -1,34 +1,9 @@
-/**
- * SLAB - High-Performance Actor-First Tiling Extension for GNOME Shell
- *
- * ARCHITECTURE OVERVIEW:
- * ----------------------
- * This extension implements "Tiling-on-Demand" with an Actor-First Optimistic UI.
- *
- * Traditional tiling (Pop Shell, Forge) is REACTIVE:
- *   User action → Protocol negotiation (slow) → Visual update
- *
- * SLAB is OPTIMISTIC:
- *   User action → Actor manipulation (instant) → Protocol sync (lazy)
- *
- * ZERO OVERHEAD PRINCIPLE:
- * When tiling is disabled, this extension consumes 0 CPU cycles.
- * We don't track window moves in real-time. We only snapshot state
- * at the exact moment the user enables tiling.
- *
- * MEMORY STRATEGY:
- * All geometry objects are pre-allocated at init and reused.
- * NO allocations in hot paths = NO GC pauses during tiling operations.
- */
-
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
 import { Extension } from "resource:///org/gnome/shell/extensions/extension.js";
 
 import Shell from "gi://Shell";
-import Meta from "gi://Meta";
 
 import { SlabState } from "./types/index.js";
-import { scheduleBeforeRedraw } from "./utils/compositor.js";
 import {
   toggleSlab,
   applyMasterStackToWorkspace,
@@ -45,9 +20,6 @@ import {
 } from "./managers/keyboard.js";
 import { SlabIndicator, SlabIndicatorInstance } from "./ui/indicator.js";
 
-// =============================================================================
-// EXTENSION LIFECYCLE
-// =============================================================================
 export default class SlabExtension extends Extension {
   private _state: SlabState | null = null;
   private _indicator: SlabIndicatorInstance | null = null;
@@ -55,7 +27,6 @@ export default class SlabExtension extends Extension {
   enable(): void {
     console.log("[SLAB] Extension enable() called");
 
-    // Initialize state
     this._state = {
       tilingEnabled: false,
       floatingSnapshot: new Map(),
@@ -88,7 +59,6 @@ export default class SlabExtension extends Extension {
           console.log("[SLAB] Keybinding triggered!");
           if (this._state) {
             toggleSlab(this._state);
-            // Update indicator and show OSD
             this._indicator?.updateState(this._state.tilingEnabled);
             SlabIndicator.showOSD(this._state.tilingEnabled);
           }
@@ -252,15 +222,11 @@ export default class SlabExtension extends Extension {
 
     const display = global.display;
 
-    // listen for resize completion (grab-op-end) to adjust layout
     const resizeSigId = display.connect(
       "grab-op-end",
       (_display: Meta.Display, window: Meta.Window, grabOp: number) => {
         if (!this._state?.tilingEnabled) return;
 
-        // resize operation
-        // GrabOp values: RESIZING_* are in range 1-16 (roughly)
-        // check if its any resize operation by looking at the high bits
         const isResize =
           (grabOp & 0xf000) !== 0 || (grabOp >= 1 && grabOp <= 16);
 
@@ -277,7 +243,6 @@ export default class SlabExtension extends Extension {
     );
     this._state.signalIds.push(resizeSigId);
 
-    // listen for workspace switches to save/load per-workspace state
     const workspaceManager = global.workspace_manager;
     const wsSigId = workspaceManager.connect("active-workspace-changed", () => {
       if (!this._state) return;
@@ -289,7 +254,6 @@ export default class SlabExtension extends Extension {
 
       console.log(`[SLAB] Workspace switch: ${oldIndex} -> ${newIndex}`);
 
-      // save current workspace state (only if tiling was enabled)
       if (this._state.tilingEnabled) {
         this._state.workspaceStates.set(oldIndex, {
           tilingEnabled: this._state.tilingEnabled,
@@ -301,7 +265,6 @@ export default class SlabExtension extends Extension {
         });
       }
 
-      // load new workspace state (or defaults if not stored)
       const savedState = this._state.workspaceStates.get(newIndex);
       if (savedState) {
         this._state.tilingEnabled = savedState.tilingEnabled;
@@ -339,19 +302,15 @@ export default class SlabExtension extends Extension {
     console.log("[SLAB] Extension disable() called");
 
     if (this._state) {
-      // Restore all windows if tiling is active
       if (this._state.tilingEnabled) {
-        // Force toggle off to restore windows
         toggleSlab(this._state);
       }
 
-      // Disconnect generic signals
       const display = global.display;
       for (const id of this._state.signalIds) {
         display.disconnect(id);
       }
 
-      // Remove all keybindings
       Main.wm.removeKeybinding("toggle-tiling");
       Main.wm.removeKeybinding("retile-trigger");
       Main.wm.removeKeybinding("focus-left");
@@ -367,16 +326,13 @@ export default class SlabExtension extends Extension {
       Main.wm.removeKeybinding("pop-out-window");
       Main.wm.removeKeybinding("pop-in-window");
 
-      // Clean up keyboard manager
       cleanupKeyboardManager();
 
-      // Destroy panel indicator
       if (this._indicator) {
         this._indicator.destroy();
         this._indicator = null;
       }
 
-      // Clear state
       this._state = null;
     }
 
