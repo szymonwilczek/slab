@@ -203,6 +203,7 @@ declare module "gi://Shell" {
     readonly stage: Clutter.Actor;
 
     get_window_actors(): WindowActor[];
+    get_pointer(): [number, number, number];
   }
 
   export class WindowActor {

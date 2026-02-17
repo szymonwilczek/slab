@@ -60,6 +60,7 @@ declare global {
     stage: any;
     workspace_manager: Meta.WorkspaceManager;
     get_window_actors(): WindowActor[];
+    get_pointer(): [number, number, number];
     compositor?: {
       get_laters(): {
         add(type: number, callback: () => boolean): number;

@@ -176,11 +176,9 @@ function handlePositionChanged(state: SlabState, window: Meta.Window): void {
     return;
   }
 
-  const frame = window.get_frame_rect();
-  const centerX = frame.x + frame.width / 2;
-  const centerY = frame.y + frame.height / 2;
-
-  const zone = getDropZoneAtPosition(centerX, centerY, currentZones);
+  // mouse pointer position
+  const [x, y] = global.get_pointer();
+  const zone = getDropZoneAtPosition(x, y, currentZones);
 
   if (zone && zone.index !== state.dragState.originalIndex) {
     overlay.show(zone);
