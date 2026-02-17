@@ -2,15 +2,7 @@ import Meta from "gi://Meta";
 import GLib from "gi://GLib";
 import St from "gi://St";
 
-// =============================================================================
-// LATERS API HELPER (GNOME 45+ Compatibility)
-// =============================================================================
-/**
- * Schedule a callback to run before the next compositor redraw.
- * Handles API differences between GNOME versions.
- */
 export function scheduleBeforeRedraw(callback: () => void): void {
-  // Try GNOME 49+ API first (global.compositor.get_laters())
   if (global.compositor && typeof global.compositor.get_laters === "function") {
     try {
       const laters = global.compositor.get_laters();
@@ -46,13 +38,6 @@ export function scheduleBeforeRedraw(callback: () => void): void {
   });
 }
 
-/**
- * Schedule a callback to run after N frames.
- * Uses recursive scheduleBeforeRedraw calls.
- *
- * @param frames Number of frames to wait (1 = next frame, 2 = frame after next, etc.)
- * @param callback Function to execute
- */
 export function scheduleAfterFrames(
   frames: number,
   callback: () => void,
@@ -67,20 +52,8 @@ export function scheduleAfterFrames(
   });
 }
 
-// =============================================================================
-// ANIMATION SUSPENSION (Using GNOME Shell Internal API)
-// =============================================================================
-/**
- * Use St.Settings to properly inhibit animations.
- * This is GNOME Shells internal mechanism - much more reliable than GSettings.
- */
-
 let _animationInhibitCount = 0;
 
-/**
- * Suspend ALL GNOME Shell animations using the internal API.
- * This is the proper way to do it - no race conditions, instant effect.
- */
 export function suspendAnimations(): void {
   try {
     const settings = St.Settings.get();
@@ -95,9 +68,6 @@ export function suspendAnimations(): void {
   }
 }
 
-/**
- * Resume GNOME Shell animations.
- */
 export function resumeAnimations(): void {
   try {
     if (_animationInhibitCount > 0) {
