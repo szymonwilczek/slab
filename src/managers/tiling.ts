@@ -306,44 +306,6 @@ export function applyMasterStackToWorkspace(
   scheduleBeforeRedraw(() => {
     console.log("[SLAB] === Atomic transition executing ===");
 
-    // suppress animations for all windows involved
-    for (const { actor } of windowActors) {
-      try {
-        // minimize/maximize/map
-        Main.wm.skipNextEffect(actor);
-
-        // easing
-        actor.save_easing_state();
-        actor.set_easing_duration(0);
-        (actor as any).remove_all_transitions();
-
-        // FORCE HIDE
-        actor.hide();
-      } catch (e) {
-        console.error("[SLAB] Error inhibiting animations:", e);
-      }
-    }
-
-    // unfullscreen and unmaximize all windows
-    for (const window of allWindows) {
-      try {
-        if (window.is_hidden()) continue;
-
-        if (window.is_fullscreen()) {
-          console.log("[SLAB] Unfullscreening:", window.title);
-          window.unmake_fullscreen();
-        }
-
-        const maxState = getWindowMaximizeState(window);
-        if (maxState !== 0) {
-          console.log("[SLAB] Unmaximizing:", window.title);
-          window.unmaximize(Meta.MaximizeFlags.BOTH);
-        }
-      } catch (e) {
-        console.error("[SLAB] Error unfullscreening:", e);
-      }
-    }
-
     const windows = getTileableWindows(
       monitor,
       undefined,
@@ -369,6 +331,44 @@ export function applyMasterStackToWorkspace(
       for (const { actor } of windowActors) actor.show();
       resumeAnimations();
       return;
+    }
+
+    // suppress animations for all windows involved
+    for (const { actor } of windowActors) {
+      try {
+        // minimize/maximize/map
+        Main.wm.skipNextEffect(actor);
+
+        // easing
+        actor.save_easing_state();
+        actor.set_easing_duration(0);
+        (actor as any).remove_all_transitions();
+
+        // FORCE HIDE
+        actor.hide();
+      } catch (e) {
+        console.error("[SLAB] Error inhibiting animations:", e);
+      }
+    }
+
+    // 3. unfullscreen and unmaximize all windows
+    for (const window of allWindows) {
+      try {
+        if (window.is_hidden()) continue;
+
+        if (window.is_fullscreen()) {
+          console.log("[SLAB] Unfullscreening:", window.title);
+          window.unmake_fullscreen();
+        }
+
+        const maxState = getWindowMaximizeState(window);
+        if (maxState !== 0) {
+          console.log("[SLAB] Unmaximizing:", window.title);
+          window.unmaximize(Meta.MaximizeFlags.BOTH);
+        }
+      } catch (e) {
+        console.error("[SLAB] Error unfullscreening:", e);
+      }
     }
 
     const workArea = workspace.get_work_area_for_monitor(monitor);
@@ -433,13 +433,6 @@ export function applyMasterStackToWorkspace(
 
     for (const { window, x, y, w, h } of layout) {
       try {
-        if (window.is_hidden()) {
-          console.log(
-            `[SLAB-DEBUG] Skipping invisible window: ${window.title}`,
-          );
-          continue;
-        }
-
         console.log(
           "[SLAB] Moving:",
           window.title,

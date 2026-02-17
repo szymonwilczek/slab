@@ -102,7 +102,9 @@ declare module "gi://Meta" {
     ): void;
     maximize(flags: MaximizeFlags): void;
     unmaximize(flags: MaximizeFlags): void;
-    get_maximized(): MaximizeFlags;
+    unmaximize(flags: MaximizeFlags): void;
+    maximized_horizontally: boolean;
+    maximized_vertically: boolean;
     make_fullscreen(): void;
 
     raise(): void;

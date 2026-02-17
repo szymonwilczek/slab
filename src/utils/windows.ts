@@ -3,7 +3,13 @@ import GObject from "gi://GObject";
 import { SlabState } from "../types/index.js";
 
 export function getWindowMaximizeState(window: Meta.Window): number {
-  return window.get_maximized();
+  const h = window.maximized_horizontally;
+  const v = window.maximized_vertically;
+
+  if (h && v) return Meta.MaximizeFlags.BOTH;
+  if (h) return Meta.MaximizeFlags.HORIZONTAL;
+  if (v) return Meta.MaximizeFlags.VERTICAL;
+  return 0;
 }
 
 export function _blockWindowSignals(
