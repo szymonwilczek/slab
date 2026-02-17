@@ -364,7 +364,8 @@ export function applyMasterStackToWorkspace(
         const maxState = getWindowMaximizeState(window);
         if (maxState !== 0) {
           console.log("[SLAB] Unmaximizing:", window.title);
-          window.unmaximize(Meta.MaximizeFlags.BOTH);
+          // @ts-ignore
+          window.unmaximize();
         }
       } catch (e) {
         console.error("[SLAB] Error unfullscreening:", e);

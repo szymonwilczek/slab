@@ -92,10 +92,15 @@ export function getTileableWindows(
       continue;
     }
 
+    const maxState = getWindowMaximizeState(window);
+    const isMaximizedOrFullscreen = maxState !== 0 || window.is_fullscreen();
+
     if (!window.allows_move() || !window.allows_resize()) {
-      if (isDebug)
-        console.log(`[SLAB-DEBUG] Skipping ${window.title}: No move/resize`);
-      continue;
+      if (!isMaximizedOrFullscreen) {
+        if (isDebug)
+          console.log(`[SLAB-DEBUG] Skipping ${window.title}: No move/resize`);
+        continue;
+      }
     }
 
     if (window.is_on_all_workspaces()) continue;
