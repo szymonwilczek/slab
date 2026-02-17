@@ -1,9 +1,3 @@
-// =============================================================================
-// SLAB PANEL INDICATOR
-// =============================================================================
-// Tray icon in GNOME top panel showing tiling status with status dot.
-// Click opens menu with toggle, settings, and about options.
-
 import St from "gi://St";
 import Gio from "gi://Gio";
 import GObject from "gi://GObject";
@@ -14,17 +8,11 @@ import * as PopupMenu from "resource:///org/gnome/shell/ui/popupMenu.js";
 
 import { SlabState } from "../types/index.js";
 
-// =============================================================================
-// INDICATOR CLASS
-// =============================================================================
-
-// module-level references to bypass GObject 'this' binding issues
 let _indicatorDot: St.Widget | null = null;
 let _indicatorIcon: St.Icon | null = null;
 
 export const SlabIndicator = GObject.registerClass(
   class SlabIndicator extends PanelMenu.Button {
-    // all fields must use ! (no initializers work with GObject ;( )
     _state!: SlabState | null;
     _icon!: St.Icon;
     _dot!: St.Widget;
@@ -69,7 +57,6 @@ export const SlabIndicator = GObject.registerClass(
 
       this._icon.add_child(this._dot);
 
-      // module-level references for updateState (GObject 'this' binding workaround)
       _indicatorDot = this._dot;
       _indicatorIcon = this._icon;
 
@@ -84,10 +71,6 @@ export const SlabIndicator = GObject.registerClass(
       );
     }
 
-    /**
-     * Setup the indicator with state and callbacks.
-     * Must be called after construction due to GObject.registerClass limitations.
-     */
     setup(
       state: SlabState,
       toggleCallback: () => void,
@@ -133,7 +116,6 @@ export const SlabIndicator = GObject.registerClass(
       });
       this.menu.addMenuItem(settingsItem);
 
-      // opens GitHub repo
       const aboutItem = new PopupMenu.PopupMenuItem("About SLAB");
       aboutItem.connect("activate", () => {
         console.log("[SLAB-INDICATOR] About clicked - opening GitHub");
@@ -152,9 +134,6 @@ export const SlabIndicator = GObject.registerClass(
       console.log("[SLAB-INDICATOR] Menu built");
     }
 
-    /**
-     * Update indicator visual state based on tiling enabled/disabled.
-     */
     updateState(tilingEnabled: boolean): void {
       console.log(
         "[SLAB-INDICATOR] updateState called, tilingEnabled:",
@@ -187,9 +166,6 @@ export const SlabIndicator = GObject.registerClass(
       }
     }
 
-    /**
-     * Show OSD notification for tiling state change.
-     */
     static showOSD(enabled: boolean): void {
       const iconName = enabled ? "view-grid-symbolic" : "view-restore-symbolic";
       const text = enabled ? "Tiling Enabled" : "Tiling Disabled";
