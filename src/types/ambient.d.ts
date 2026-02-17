@@ -1,7 +1,3 @@
-/**
- * SLAB - Ambient Type Definitions for GJS/GNOME Shell 45+
- */
-
 declare module "resource:///org/gnome/shell/extensions/extension.js" {
   export class Extension {
     readonly uuid: string;
@@ -24,10 +20,6 @@ declare module "gi://Meta" {
 
   export const CURRENT_TIME: number;
 
-  /**
-   * Meta.LaterType - controls when deferred callbacks run
-   * BEFORE_REDRAW is critical: runs after layout but before compositing
-   */
   export enum LaterType {
     RESIZE = 0,
     BEFORE_REDRAW = 2, // for protocol sync
@@ -65,10 +57,6 @@ declare module "gi://Meta" {
     USER_ACTION = 4,
   }
 
-  /**
-   * Rectangle structure - used for geometry calculations
-   * CRITICAL: pre-allocate these to avoid GC in hot paths
-   */
   export class Rectangle {
     x: number;
     y: number;
@@ -80,36 +68,17 @@ declare module "gi://Meta" {
     equal(other: Rectangle): boolean;
   }
 
-  /**
-   * Meta.Window - the logical window state
-   * This is what the WM protocol sees, NOT the visual actor
-   */
   export class Window {
     readonly window_type: WindowType;
     readonly title: string;
 
-    /**
-     * Stable sequence number - unique ID that persists across restarts
-     * Used as key in our FloatingSnapshot map
-     */
     get_stable_sequence(): number;
-
     get_wm_class(): string | null;
     get_compositor_private(): Clutter.Actor | null;
     get_workspace(): Workspace | null;
     get_monitor(): number;
     get_transient_for(): Window | null;
-
-    /**
-     * get_frame_rect() - Returns the VISIBLE window geometry
-     * This EXCLUDES CSD shadows. For layout calculations.
-     */
     get_frame_rect(): Rectangle;
-
-    /**
-     * get_buffer_rect() - Returns the FULL buffer including CSD shadows
-     * Delta between frame_rect and buffer_rect = shadow compensation
-     */
     get_buffer_rect(): Rectangle;
 
     is_on_all_workspaces(): boolean;
@@ -119,27 +88,11 @@ declare module "gi://Meta" {
     allows_move(): boolean;
     allows_resize(): boolean;
 
-    /**
-     * Minimize/unminimize the window
-     */
     readonly minimized: boolean;
     minimize(): void;
     unminimize(): void;
-
-    /**
-     * Unfullscreen the window
-     */
     unmake_fullscreen(): void;
 
-    /**
-     * move_resize_frame() - The PROTOCOL-LEVEL resize
-     * This negotiates with Wayland/X11. SLOW. For sync only.
-     * @param userOp - true if user-initiated (affects constraints)
-     * @param x - frame x position
-     * @param y - frame y position
-     * @param w - frame width
-     * @param h - frame height
-     */
     move_resize_frame(
       userOp: boolean,
       x: number,
@@ -147,35 +100,15 @@ declare module "gi://Meta" {
       w: number,
       h: number,
     ): void;
-
-    /**
-     * Maximize the window
-     */
     maximize(flags: MaximizeFlags): void;
     unmaximize(flags: MaximizeFlags): void;
     get_maximized(): MaximizeFlags;
-
-    /**
-     * Make window fullscreen
-     */
     make_fullscreen(): void;
 
-    /**
-     * Raise window to top of stacking order
-     */
     raise(): void;
-
-    /**
-     * Focus this window
-     */
     focus(timestamp: number): void;
-
     activate(timestamp: number): void;
 
-    /**
-     * Signal connection for window geometry changes
-     * We BLOCK these when enforcing geometry to prevent loops
-     */
     connect(
       signal: "position-changed" | "size-changed" | "unmanaging",
       callback: () => void,
@@ -186,10 +119,6 @@ declare module "gi://Meta" {
   export class Workspace {
     index(): number;
     list_windows(): Window[];
-
-    /**
-     * Get work area for a specific monitor, excluding panels and docks.
-     */
     get_work_area_for_monitor(monitor: number): Rectangle;
   }
 
@@ -215,10 +144,6 @@ declare module "gi://Meta" {
     get_n_monitors(): number;
     get_primary_monitor(): number;
     get_current_monitor(): number;
-
-    /**
-     * Returns work area excluding panels/docks
-     */
     get_monitor_geometry(monitor: number): Rectangle;
     get_monitor_scale(monitor: number): number;
 
@@ -233,10 +158,6 @@ declare module "gi://Meta" {
     disconnect(id: number): void;
   }
 
-  /**
-   * Grab operation type - what kind of grab is happening
-   * Values from GNOME Mutter source
-   */
   export enum GrabOp {
     NONE = 0,
     MOVING = 1,
@@ -252,10 +173,6 @@ declare module "gi://Meta" {
     RESIZING_W = 9,
   }
 
-  /**
-   * later_add() - Schedule callback for next frame
-   * CRITICAL: how we defer protocol sync without blocking visuals
-   */
   export function later_add(type: LaterType, callback: () => boolean): number;
   export function later_remove(id: number): void;
 }
@@ -307,10 +224,6 @@ declare module "gi://Clutter" {
   export const EVENT_STOP: boolean;
   export const EVENT_PROPAGATE: boolean;
 
-  /**
-   * Clutter.Actor - the VISUAL representation of a window
-   * This is what the compositor draws. Manipulating this = instant feedback.
-   */
   export class Actor {
     x: number;
     y: number;
@@ -318,48 +231,33 @@ declare module "gi://Clutter" {
     height: number;
     visible: boolean;
 
-    /**
-     * set_position() - Instant visual update, NO protocol negotiation
-     */
     set_position(x: number, y: number): void;
-
-    /**
-     * set_size() - Instant visual update, NO protocol negotiation
-     * WARNING: This may cause visual glitches if the app hasnt
-     * rendered to the new size yet. Thats acceptable for perceived
-     * responsiveness.
-     */
     set_size(width: number, height: number): void;
-
     get_position(): [number, number];
+
     get_size(): [number, number];
 
     show(): void;
     hide(): void;
 
-    // Easing state methods
     save_easing_state(): void;
     restore_easing_state(): void;
     set_easing_duration(msecs: number): void;
     set_easing_mode(mode: number): void;
     remove_all_transitions(): void;
 
-    // Child management
     add_child(child: Actor): void;
     remove_child(child: Actor): void;
     destroy(): void;
   }
 
-  // Button constants
   export const BUTTON_PRIMARY: number;
   export const BUTTON_SECONDARY: number;
   export const BUTTON_MIDDLE: number;
 
-  // Event propagation constants
   export const EVENT_PROPAGATE: boolean;
   export const EVENT_STOP: boolean;
 
-  // Event type for button presses
   export interface ButtonEvent {
     get_button(): number;
   }
@@ -401,27 +299,20 @@ declare module "gi://Gio" {
     connect(signal: string, callback: () => void): number;
     disconnect(id: number): void;
 
-    /**
-     * Sync settings to disk - ensures changes are applied immediately
-     */
     static sync(): void;
   }
 
-  // GIcon interface
   export interface GIcon {}
 
-  // Icon namespace with factory methods
   export namespace Icon {
     function new_for_string(str: string): GIcon;
   }
 
-  // ThemedIcon - creates GIcon from icon name
   export class ThemedIcon implements GIcon {
     constructor(params: { name: string });
     static new(iconName: string): GIcon;
   }
 
-  // Launch default application for URI
   export function app_info_launch_default_for_uri(
     uri: string,
     context: null,
@@ -471,7 +362,6 @@ declare module "gi://GObject" {
   ): boolean;
 }
 
-// Re-export for convenient importing
 declare namespace Meta {
   export * from "gi://Meta";
 }
@@ -496,7 +386,6 @@ declare namespace GObject {
   export * from "gi://GObject";
 }
 
-// Main extension interface for keybindings
 declare module "resource:///org/gnome/shell/ui/main.js" {
   import * as Clutter from "gi://Clutter";
   import * as Gio from "gi://Gio";
@@ -510,17 +399,12 @@ declare module "resource:///org/gnome/shell/ui/main.js" {
       callback: () => void,
     ): void;
     removeKeybinding(name: string): void;
-    /**
-     * Skip the next effect on the given actor.
-     * Used to bypass unfullscreen/unmaximize animations.
-     */
     skipNextEffect(actor: Clutter.Actor): void;
   };
 
   export const layoutManager: {
     monitors: Array<{ x: number; y: number; width: number; height: number }>;
     primaryIndex: number;
-    /** The main UI group - add overlays here */
     uiGroup: Clutter.Actor;
     addChrome(actor: Clutter.Actor): void;
     removeChrome(actor: Clutter.Actor): void;
@@ -554,23 +438,16 @@ declare module "resource:///org/gnome/shell/ui/main.js" {
   export function notify(title: string, body: string): void;
 }
 
-// St (Shell Toolkit) - GNOME Shell's widget toolkit
 declare module "gi://St" {
   import type Clutter from "gi://Clutter";
 
   namespace St {
-    /**
-     * St.Settings - Shell Toolkit settings, includes animation control
-     */
     class Settings {
       static get(): Settings;
       inhibit_animations(): void;
       uninhibit_animations(): void;
     }
 
-    /**
-     * St.Widget - Base class for Shell Toolkit widgets
-     */
     class Widget extends Clutter.Actor {
       constructor(params?: {
         style_class?: string;
@@ -595,9 +472,6 @@ declare module "gi://St" {
       destroy(): void;
     }
 
-    /**
-     * St.BoxLayout - Container with horizontal or vertical layout
-     */
     class BoxLayout extends Widget {
       constructor(params?: {
         style_class?: string;
@@ -609,9 +483,6 @@ declare module "gi://St" {
       vertical: boolean;
     }
 
-    /**
-     * St.Bin - Single-child container widget
-     */
     class Bin extends Widget {
       constructor(params?: {
         style_class?: string;
@@ -624,18 +495,12 @@ declare module "gi://St" {
       get_child(): Clutter.Actor | null;
     }
 
-    /**
-     * St.Label - Text label widget
-     */
     class Label extends Widget {
       constructor(params?: { text?: string; style_class?: string });
 
       text: string;
     }
 
-    /**
-     * St.Icon - Icon widget for displaying symbolic/regular icons
-     */
     class Icon extends Widget {
       constructor(params?: {
         icon_name?: string;
@@ -651,13 +516,9 @@ declare module "gi://St" {
   export default St;
 }
 
-// =============================================================================
-// GTK4 - For preferences UI
-// =============================================================================
-
 declare module "gi://Gdk" {
   namespace Gdk {
-    // Special keys
+    // special keys
     const KEY_Escape: number;
     const KEY_BackSpace: number;
     const KEY_Return: number;
@@ -666,19 +527,19 @@ declare module "gi://Gdk" {
     const KEY_space: number;
     const KEY_KP_Enter: number;
 
-    // Arrow keys
+    // arrow keys
     const KEY_Left: number;
     const KEY_Right: number;
     const KEY_Up: number;
     const KEY_Down: number;
 
-    // Navigation keys
+    // navigation keys
     const KEY_Home: number;
     const KEY_End: number;
     const KEY_Page_Up: number;
     const KEY_Page_Down: number;
 
-    // Modifier keys
+    // modifier keys
     const KEY_Shift_L: number;
     const KEY_Shift_R: number;
     const KEY_Control_L: number;
@@ -694,7 +555,7 @@ declare module "gi://Gdk" {
     const KEY_ISO_Level3_Shift: number;
     const KEY_ISO_Level5_Shift: number;
 
-    // Function keys
+    // function keys
     const KEY_F1: number;
     const KEY_F2: number;
     const KEY_F3: number;
@@ -709,7 +570,7 @@ declare module "gi://Gdk" {
     const KEY_F12: number;
     const KEY_F35: number;
 
-    // Letter keys
+    // letter keys
     const KEY_h: number;
     const KEY_j: number;
     const KEY_k: number;
@@ -816,10 +677,6 @@ declare module "gi://Gtk" {
   export default Gtk;
 }
 
-// =============================================================================
-// ADW (Libadwaita) - For modern GNOME preferences UI
-// =============================================================================
-
 declare module "gi://Adw" {
   import Gtk from "gi://Gtk";
 
@@ -873,10 +730,6 @@ declare module "gi://Adw" {
   export default Adw;
 }
 
-// =============================================================================
-// Extension Preferences Module
-// =============================================================================
-
 declare module "resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js" {
   import Adw from "gi://Adw";
   import Gio from "gi://Gio";
@@ -888,10 +741,6 @@ declare module "resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js" {
 
   export function gettext(str: string): string;
 }
-
-// =============================================================================
-// PanelMenu - Panel button with dropdown menu
-// =============================================================================
 
 declare module "resource:///org/gnome/shell/ui/panelMenu.js" {
   import St from "gi://St";
@@ -911,10 +760,6 @@ declare module "resource:///org/gnome/shell/ui/panelMenu.js" {
     destroy(): void;
   }
 }
-
-// =============================================================================
-// PopupMenu - Dropdown menus for panel buttons
-// =============================================================================
 
 declare module "resource:///org/gnome/shell/ui/popupMenu.js" {
   import St from "gi://St";
