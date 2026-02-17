@@ -13,17 +13,6 @@ export interface LayoutResult {
   skippedWindows: Meta.Window[];
 }
 
-/**
- * Calculate Master-Stack layout with dynamic sizing.
- *
- * - start with default master ratio
- * - calculate rows/columns needed
- * - if row height OR column width < minimum, reduce master to fit more space
- * - if still cant fit at MIN_MASTER_WIDTH, skip excess windows (oldest first)
- *
- * Returns both layout entries and skipped windows.
- * Skipped windows are from the END of the stack (oldest windows).
- */
 export function calculateMasterStackLayout(
   windows: Meta.Window[],
   workArea: Meta.Rectangle,
