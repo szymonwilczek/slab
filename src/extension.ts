@@ -18,11 +18,13 @@ import {
   swapDirection,
   adjustMasterRatio,
 } from "./managers/keyboard.js";
-import { SlabIndicator, SlabIndicatorInstance } from "./ui/indicator.js";
+import { SlabIndicator as SlabSystemIndicator } from "./ui/quickSettings.js";
+
+type SlabSystemIndicatorInstance = InstanceType<typeof SlabSystemIndicator>;
 
 export default class SlabExtension extends Extension {
   private _state: SlabState | null = null;
-  private _indicator: SlabIndicatorInstance | null = null;
+  private _quickSettingsIndicator: SlabSystemIndicatorInstance | null = null;
 
   enable(): void {
     console.log("[SLAB] Extension enable() called");
@@ -59,8 +61,9 @@ export default class SlabExtension extends Extension {
           console.log("[SLAB] Keybinding triggered!");
           if (this._state) {
             toggleSlab(this._state);
-            this._indicator?.updateState(this._state.tilingEnabled);
-            SlabIndicator.showOSD(this._state.tilingEnabled);
+            this._quickSettingsIndicator?.updateState(
+              this._state.tilingEnabled,
+            );
           }
         },
       );
@@ -87,41 +90,39 @@ export default class SlabExtension extends Extension {
       console.error("[SLAB] Failed to register retile keybinding:", e);
     }
 
-    // panel indicator
     const stateForIndicator = this._state;
     const extensionRef = this;
-    const indicator = new (SlabIndicator as any)();
-    this._indicator = indicator;
 
-    if (this._indicator) {
-      (this._indicator as any).setup(
+    this._quickSettingsIndicator = new SlabSystemIndicator();
+
+    if (this._quickSettingsIndicator) {
+      this._quickSettingsIndicator.setup(
         this._state,
         () => {
           // toggle callback
-          console.log("[SLAB-EXT] Indicator toggle callback fired");
-          console.log("[SLAB-EXT] State exists:", !!stateForIndicator);
+          console.log("[SLAB-EXT] Quick Toggle callback fired");
           if (stateForIndicator) {
-            console.log("[SLAB-EXT] Calling toggleSlab");
             toggleSlab(stateForIndicator);
-            console.log(
-              "[SLAB-EXT] toggleSlab completed, tilingEnabled:",
+            extensionRef._quickSettingsIndicator?.updateState(
               stateForIndicator.tilingEnabled,
             );
-            extensionRef._indicator?.updateState(
-              stateForIndicator.tilingEnabled,
-            );
-            SlabIndicator.showOSD(stateForIndicator.tilingEnabled);
           }
         },
         () => {
-          // open prefs callback
-          console.log("[SLAB-EXT] Indicator openPrefs callback fired");
+          // settings callback
           extensionRef.openPreferences();
-          console.log("[SLAB-EXT] openPreferences called");
         },
       );
+
+      console.log("[SLAB] Adding to Quick Settings...");
+      const quickSettings = (Main.panel as any).statusArea.quickSettings;
+      if (quickSettings) {
+        quickSettings.addExternalIndicator(this._quickSettingsIndicator);
+        console.log("[SLAB] Added as external indicator");
+      } else {
+        console.error("[SLAB] Quick Settings menu not found!");
+      }
     }
-    Main.panel.addToStatusArea("slab-indicator", this._indicator);
 
     initKeyboardManager(this._state);
 
@@ -291,7 +292,7 @@ export default class SlabExtension extends Extension {
 
       this._state.activeWorkspaceIndex = newIndex;
 
-      this._indicator?.updateState(this._state.tilingEnabled);
+      this._quickSettingsIndicator?.updateState(this._state.tilingEnabled);
     });
     this._state.signalIds.push(wsSigId);
 
@@ -328,9 +329,9 @@ export default class SlabExtension extends Extension {
 
       cleanupKeyboardManager();
 
-      if (this._indicator) {
-        this._indicator.destroy();
-        this._indicator = null;
+      if (this._quickSettingsIndicator) {
+        (this._quickSettingsIndicator as any).destroy();
+        this._quickSettingsIndicator = null;
       }
 
       this._state = null;
